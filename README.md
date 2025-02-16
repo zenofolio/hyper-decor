@@ -69,7 +69,9 @@ class ParserController {
     response.json(user);
   }
 }
-```## Add Role | Scope to Request
+```
+
+## Add Role | Scope to Request
 
 This package extends the `hyper-express/Request` class by adding methods that help manage roles and scopes for requests.
 
