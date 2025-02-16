@@ -10,7 +10,7 @@ import { HyperException } from "../exeptions";
  */
 
 export const Role =
-<T extends string = string>(...roles: RoleType<T>[]) =>
+<T extends string = string>(roles: RoleType<T>) =>
   (target: any, propertyKey?: any, descriptorOrIndex?: any) => {
     if (!roles.length) {
       HyperException.throw(

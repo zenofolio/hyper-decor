@@ -172,6 +172,14 @@ As a result, we get:
 - `/api/users/v1/list`
 
 
+# Examples
+
+ - [Add Roles and scopes](./examples/add-roles-and-scopes.ts)
+ - [Middleware](./examples/middleware.ts)
+ - [File](./examples//upload-file.ts)
+
+
+
 # All for now
 More documentation will be added here late.
 ## Inspirate

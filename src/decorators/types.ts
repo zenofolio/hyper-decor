@@ -119,9 +119,11 @@ export type RoleMap<T> = {
  * Type definition for Role decorator.
  * It can accept a single role, an array of roles, or a function that evaluates roles dynamically.
  */
-export type RoleType<T extends string = string> = T | T[] | RoleMap<T>[];
-
-
+export type RoleType<T extends string = string> =
+  | T
+  | T[]
+  | RoleMap<T>
+  | RoleMap<T>[];
 
 export type ScopeMap<T> = {
   scope: T;
@@ -133,7 +135,11 @@ export type ScopeMap<T> = {
  * Type definition for Scope decorator.
  * It can accept a single scope or multiple scopes as an array of strings.
  */
-export type ScopeType<T extends string = string> = T | T[] | ScopeMap<T>[];
+export type ScopeType<T extends string = string> =
+  | T
+  | T[]
+  | ScopeMap<T>
+  | ScopeMap<T>[];
 
 /**
  * Type definition for Route metadata.

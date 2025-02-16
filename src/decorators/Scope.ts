@@ -11,7 +11,7 @@ import MetadatStore from "../__internals/stores";
 
 export const Scope =
   <T extends string = string>(
-    ...scopes: ScopeType<T>[]
+    scopes: ScopeType<T>
   ): ClassDecorator & MethodDecorator & ParameterDecorator =>
   (target: any, propertyKey?: any, descriptorOrIndex?: any) => {
     const { isProperty, isMethod } = who(
