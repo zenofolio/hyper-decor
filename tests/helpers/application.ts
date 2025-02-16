@@ -5,14 +5,10 @@ import {
   HyperController,
   HyperModule,
   Middleware,
-  Role,
   Scope,
-  Query,
-  Res,
-  Param,
   Post,
-  Body,
 } from "../../src/decorators";
+import { IHyperApplication } from "../../src/type";
 
 abstract class CRUD<ID extends string | number = string> {
   index(req: Request, res: Response): Promise<void> {
@@ -103,8 +99,8 @@ class CRUDModule {}
   modules: [CRUDModule],
   prefix: "/api",
 })
-export class Application {
+export class Application implements IHyperApplication {
   onPrepare() {
-    console.log("Application is prepared");
+    console.log("This method will be called after the app is prepared");
   }
 }

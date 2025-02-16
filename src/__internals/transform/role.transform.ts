@@ -88,7 +88,19 @@ const resolveRoles = (list: RoleType[]) => {
         }
       }
     } else {
-      $roles.push(role);
+      if (typeof role === "object") {
+        $roles.push({
+          role: role.role,
+          description: role.description ?? "",
+          message: role.message ?? null,
+        });
+      } else {
+        $roles.push({
+          role: role,
+          description: "",
+          message: null,
+        });
+      }
     }
   }
 

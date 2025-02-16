@@ -1,6 +1,6 @@
 {
   "name": "@zenofolio/hyper-decor",
-  "version": "1.0.0",
+  "version": "1.0.2",
   "description": "Project core with utilities and features",
   "main": "dist/index.js",
   "author": "zenozaga",
@@ -8,7 +8,8 @@
   "scripts": {
     "test": "mocha",
     "test:server": "ts-node -r tsconfig-paths/register tests/server.bench.ts",
-    "build": "tsc"
+    "build": "tsc",
+    "publish": "npm run build && npm publish --access public"
   },
   "files": [
     "dist/index.js",

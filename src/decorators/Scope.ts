@@ -31,5 +31,5 @@ export const Scope =
       propertyKey,
     });
 
-    list.set(...scopes);
+    list.set(...(Array.isArray(scopes) ? scopes : [scopes]));
   };

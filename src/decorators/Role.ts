@@ -10,9 +10,11 @@ import { HyperException } from "../exeptions";
  */
 
 export const Role =
-<T extends string = string>(roles: RoleType<T>) =>
+  <T extends string = string>(roles: RoleType<T>) =>
   (target: any, propertyKey?: any, descriptorOrIndex?: any) => {
-    if (!roles.length) {
+    const _roles = Array.isArray(roles) ? roles : [roles];
+
+    if (!_roles.length) {
       HyperException.throw(
         `Role decorator must have at least one role.`,
         "HyperException",
@@ -41,5 +43,5 @@ export const Role =
       propertyKey,
     });
 
-    list.set(...roles);
+    list.set(..._roles);
   };
