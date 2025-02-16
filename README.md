@@ -1,3 +1,8 @@
+# Hyper Express Decorators  
+A simple decorators library for Hyper Express  
+
+### Why use this?  
+This is a personal project designed to make it easier for me to create fast APIs. Maybe it can be helpful for someone else too.  
 ## Decorators  
 
 ### Core  
@@ -64,4 +69,111 @@ class ParserController {
     response.json(user);
   }
 }
+```## Add Role | Scope to Request
+
+This package extends the `hyper-express/Request` class by adding methods that help manage roles and scopes for requests.
+
+### Summary of Available Methods
+- `req.setRole(role)` – Assigns a role to the request.
+- `req.hasRole(role)` – Checks if the request has the specified role.
+- `req.setScopes(scopes)` – Assigns scopes to the request.
+- `req.hasScopes(scopes)` – Checks if the request has the specified scopes.
+- `req.setRoleScopes(role, scopes)` – Sets both the role and the scopes in one method.
+
+
+### examples
+
+```typescript
+
+@Middleware((req, res, next) => {
+    
+    // Assigning a role to the request
+    req.setRole("ADMIN");
+
+    // Assigning scopes to the request
+    req.setScopes(["read", "write"]);
+
+    // set role and scopes
+    // req.setRoleScopes("ADMIN", ["read", "write"]);
+
+
+    // Check if the request has the "ADMIN" role
+    // if (req.hasRole("ADMIN")) {
+    //     res.send("Role: ADMIN is assigned");
+    // }
+
+    // Check if the request has the "write" scope
+    // if (req.hasScopes(["write"])) {
+    //     res.send("Scope: write is granted");
+    // }
+
+    next();
+})
+@HyperModule({
+    path: 'users'
+})
+class UserModule {}
+
 ```
+
+## Usage/Decorators examples
+
+`@HyperController` - Simple versioned controller
+```typescript
+@HyperController("v1")
+class TestController extends CRUD<string> {
+
+  @Get("/list")
+  async index(@Query() query: any, @Res() res: Response) {
+    res.send("hello");
+  }
+
+}
+```
+
+`@HyperModule` - define module with controllers 
+```typescript
+@HyperModule({
+    path: "users",
+    controllers: [HyperController]
+})
+class UserV1Module {}
+```
+
+
+
+`@HyperApp` - define application
+```typescript
+@HyperApp({
+  name: "Hyper Express Decorators",
+  version: "1.0.0",
+  description: "Decorators to make development easier",
+  modules: [UserV1Module],
+  prefix: "/api",
+})
+export class Application implements IHyperApplication {
+  onPrepare() {
+    console.log("This method will be called after the app is prepared");
+  }
+}
+```
+
+## Run Application
+```typescript
+const app = await createApplication(Application)
+await app.listen(3000);
+
+```
+
+As a result, we get:
+
+- `/api/users/v1/list`
+
+
+# All for now
+More documentation will be added here late.
+## Inspirate
+
+ - [NestJS](https://github.com/nestjs/nest)
+ - [Hyper Express](https://github.com/kartikk221/hyper-express)
+
