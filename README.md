@@ -139,7 +139,7 @@ class TestController extends CRUD<string> {
     path: "users",
     controllers: [HyperController]
 })
-class UserV1Module {}
+class UserModule {}
 ```
 
 
