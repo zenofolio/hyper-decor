@@ -177,5 +177,5 @@ More documentation will be added here late.
 ## Inspirate
 
  - [NestJS](https://github.com/nestjs/nest)
- - [Hyper Express](https://github.com/kartikk221/hyper-express)
+ - [HyperExpress](https://github.com/kartikk221/hyper-express)
 
