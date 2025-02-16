@@ -4,7 +4,7 @@ A simple decorators library for Hyper Express
 ### Why use this?  
 This is a personal library designed to make it easier for me to create fast APIs. Maybe it can be helpful for someone else too.  
 
-## Inspirate
+## Motivation
 
  - [NestJS](https://github.com/nestjs/nest)
  - [HyperExpress](https://github.com/kartikk221/hyper-express)
