@@ -1,0 +1,64 @@
+{
+  "name": "@zenofolio/hyper-decor",
+  "version": "1.0.0",
+  "description": "Project core with utilities and features",
+  "main": "dist/index.js",
+  "author": "zenozaga",
+  "license": "MIT",
+  "scripts": {
+    "test": "mocha",
+    "test:server": "ts-node -r tsconfig-paths/register tests/server.bench.ts",
+    "build": "tsc"
+  },
+  "files": [
+    "dist/index.js",
+    "hyper-express-decorators.d.ts"
+  ],
+  "peerDependencies": {
+    "hyper-express": "^6.17.3"
+  },
+  "devDependencies": {
+    "@types/file-type": "^10.9.3",
+    "@types/mocha": "^10.0.8",
+    "chai": "^5.1.2",
+    "mocha": "^10.7.3",
+    "nodemon": "3.1.7",
+    "ts-node": "^10.9.2",
+    "typescript": "5.6.2"
+  },
+  "dependencies": {
+    "@zenofolio/hyper-decor": "file:",
+    "core-decorators": "^0.20.0",
+    "file-type": "^19.5.0",
+    "hyper-express-decorators": "file:",
+    "reflect-metadata": "^0.2.2",
+    "tsyringe": "^4.8.0"
+  },
+  "exports": {
+    ".": {
+      "default": "./dist/index.js",
+      "node": "./dist/index.js",
+      "import": "./src/index.ts"
+    },
+    "./decorators/*": {
+      "node": "./dist/decorators/*.js",
+      "default": "./src/decorators/*.ts"
+    },
+    "./helpers/*": {
+      "node": "./dist/common/helpers/*.js",
+      "default": "./src/common/helpers/*.ts"
+    },
+    "./exceptions/*": {
+      "node": "./dist/common/exceptions/*.js",
+      "default": "./src/common/exceptions/*.ts"
+    },
+    "./extension": {
+      "node": "./dist/extension.js",
+      "default": "./src/extension.ts"
+    },
+    "./injector": {
+      "node": "./dist/injector.js",
+      "default": "./src/injector.ts"
+    }
+  }
+}

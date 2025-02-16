@@ -1,0 +1,9 @@
+# Evitar archivos innecesarios en npm
+node_modules/
+dist/
+test/
+.git
+.github
+.vscode
+.env
+*.log
