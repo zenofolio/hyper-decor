@@ -2,7 +2,7 @@
 A simple decorators library for Hyper Express  
 
 ### Why use this?  
-This is a personal project designed to make it easier for me to create fast APIs. Maybe it can be helpful for someone else too.  
+This is a personal library designed to make it easier for me to create fast APIs. Maybe it can be helpful for someone else too.  
 ## Decorators  
 
 ### Core  
