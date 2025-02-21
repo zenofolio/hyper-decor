@@ -1,6 +1,8 @@
 # Evitar archivos innecesarios en npm
 node_modules/
 test/
+tests/
+src/
 .git
 .github
 .vscode

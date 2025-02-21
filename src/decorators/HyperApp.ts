@@ -38,7 +38,8 @@ import roleTransform from "../__internals/transform/role.transform";
 import { RouterList } from "../__internals/types";
 import { $each } from "../__internals/utils/object.util";
 import { mergeMetadata } from "../__internals/helpers/merge-metadata";
-import { container, injectable } from "tsyringe";
+import { container } from "tsyringe";
+import { ScopeStore } from "../collectors";
 
 /**
  * Decorator to define the main application class with assigned modules.
@@ -172,11 +173,14 @@ async function applyAppOptions(
     app.use(...data.middlewares);
     log(
       "middleware",
-      `${Target.name} with middlewares: ${data.middlewares.map((e) => e.name).join(", ")}`
+      `${Target.name} with middlewares: ${data.middlewares
+        .map((e) => e.name)
+        .join(", ")}`
     );
   }
 
-  scopeTransfrom(data.scopes, (middleware) => {
+  scopeTransfrom(data.scopes, (middleware, scopes) => {
+    ScopeStore.addAll(scopes);
     app.use(middleware);
     log("middleware", `${Target.name} with scopes: ${data.scopes.join(", ")}`);
   });
@@ -243,7 +247,12 @@ async function prepareTarget({
   ////////////////////////////////
 
   _router.use(...middlewares);
-  scopeTransfrom(scopes, (middleware) => _router.use(middleware));
+  
+  scopeTransfrom(scopes, (middleware, scopes) => {
+     ScopeStore.addAll(scopes);
+    _router.use(middleware);
+  });
+
   roleTransform(roles, (middleware) => _router.use(middleware));
 
   ////////////////////////////////
@@ -326,9 +335,6 @@ async function prepareRoutes({
   route,
   instance,
   namespace,
-  prefix,
-  scopes = [],
-  roles = [],
   log,
 }: PrepareRouteParams) {
   const { method, path, handler, propertyKey } = route;

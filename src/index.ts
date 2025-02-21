@@ -6,4 +6,5 @@ export * from "./common/helpers";
 export * from "./common/bootstrap";
 export * from "hyper-express";
 export * from "tsyringe";
+export * from "./collectors";
 export * from "./type";

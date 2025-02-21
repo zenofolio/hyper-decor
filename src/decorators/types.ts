@@ -125,7 +125,7 @@ export type RoleType<T extends string = string> =
   | RoleMap<T>
   | RoleMap<T>[];
 
-export type ScopeMap<T> = {
+export type ScopeMap<T extends string = string> = {
   scope: T;
   description: string;
   message?: string;

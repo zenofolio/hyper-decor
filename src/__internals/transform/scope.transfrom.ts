@@ -1,5 +1,5 @@
 import { MiddlewareHandler } from "hyper-express";
-import { ScopeType } from "../../decorators";
+import { ScopeMap, ScopeType } from "../../decorators";
 import { NotScopeException } from "../../exeptions";
 import { getScopes } from "../../common/helpers";
 
@@ -7,11 +7,7 @@ export default function scopeTransfrom(
   listScopes: ScopeType[],
   callback?: (
     middleware: MiddlewareHandler,
-    scopes: {
-      scope: string;
-      description: string;
-      message: string | null;
-    }[],
+    scopes: ScopeMap[],
     names: Set<string>
   ) => void
 ): MiddlewareHandler {
@@ -55,13 +51,15 @@ export default function scopeTransfrom(
  * @param scopes
  * @returns
  */
-const resolveScopes = (scopes: ScopeType[]) => {
+const resolveScopes = (
+  scopes: ScopeType[]
+): {
+  scopes: ScopeMap[];
+  scopeNames: Set<string>;
+  isEmtpy: boolean;
+} => {
   const $scopes = {} as {
-    [key: string]: {
-      scope: string;
-      description: string;
-      message: string | null;
-    };
+    [key: string]: ScopeMap;
   };
 
   for (const scope of scopes) {
@@ -69,7 +67,6 @@ const resolveScopes = (scopes: ScopeType[]) => {
       $scopes[scope] = {
         scope,
         description: "",
-        message: null,
       };
     } else if (Array.isArray(scope)) {
       for (const s of scope) {
@@ -78,14 +75,15 @@ const resolveScopes = (scopes: ScopeType[]) => {
             $scopes[s] = {
               scope: s,
               description: "",
-              message: null,
             };
             break;
           case "object":
             $scopes[s.scope] = {
               scope: s.scope,
               description: s.description ?? "",
-              message: s.message ?? null,
+              message:
+                s.message ??
+                `You don't have the required scopes to access this resource`,
             };
             break;
         }

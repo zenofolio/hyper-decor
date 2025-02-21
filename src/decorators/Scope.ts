@@ -1,7 +1,6 @@
 import "reflect-metadata";
 import { KEY_PARAMS_SCOPE, METADATA_KEYS } from "../__internals/constants";
 import { ScopeType } from "./types";
-import scopeTransfrom from "../__internals/transform/scope.transfrom";
 import who from "../__internals/helpers/who.helper";
 import MetadatStore from "../__internals/stores";
 
