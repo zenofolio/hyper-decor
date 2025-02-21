@@ -56,10 +56,6 @@
     "./extension": {
       "node": "./dist/extension.js",
       "default": "./src/extension.ts"
-    },
-    "./injector": {
-      "node": "./dist/injector.js",
-      "default": "./src/injector.ts"
     }
   }
 }
