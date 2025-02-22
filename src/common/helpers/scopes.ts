@@ -46,19 +46,14 @@ export const getScopes = (request: Request): string[] | undefined => {
 /**
  * Check if request has required scopes
  *
- * @param request
- * @param scopes
- * @returns
+ * @param request - The incoming request
+ * @param scopes - Required scopes to check
+ * @returns `true` if the request has all required scopes, otherwise `false`
  */
-export const hasScopes = (
-  request: Request,
-  scopes: HyperScopeOptions
-): boolean => {
-  const requestScopes = getScopes(request);
+export const hasScopes = (request: Request, scopes: HyperScopeOptions): boolean => {
+  const requestScopes = new Set(getScopes(request) || []);
+  
+  if (requestScopes.has("*")) return true;
 
-  if (!requestScopes) {
-    return false;
-  }
-
-  return $array(scopes).every((scope) => requestScopes.includes(scope));
+  return $array(scopes).every(scope => requestScopes.has(scope));
 };
