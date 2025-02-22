@@ -6,6 +6,7 @@ declare module "hyper-express" {
 
     getScopes(): string[] | undefined;
     setScopes(scopes: HyperScopeOptions): void;
+    setFullScopes(): void
 
     getRoles(): string[] | undefined;
     setRole(role: HyperRoleOptions): void;

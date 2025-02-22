@@ -1,4 +1,4 @@
-import { Response, Server } from "hyper-express";
+import { Response } from "hyper-express";
 import {
   Get,
   HyperApp,
@@ -7,6 +7,11 @@ import {
   Middleware,
   Scope,
   Post,
+  Req, 
+  Res,
+  Query,
+  Body,
+  Param,
 } from "../../src/decorators";
 import { IHyperApplication } from "../../src/type";
 
@@ -19,6 +24,7 @@ abstract class CRUD<ID extends string | number = string> {
     throw new Error("Method not implemented.");
   }
 
+  @Scope("roles:admin")
   create(request: Request, res: Response): Promise<void> | void {
     throw new Error("Method not implemented.");
   }
@@ -36,6 +42,7 @@ abstract class CRUD<ID extends string | number = string> {
 /// TestController | HyperController
 ////////////////////////////////////
 
+@Scope("controller:unit")
 @Middleware((req, res, next) => {
   console.log(`Controller level middleware`);
   next();
@@ -64,6 +71,7 @@ class TestController extends CRUD<string> {
   }
 
   @Post("/details/:id")
+  @Scope("users:read")
   find(
     @Param("id") id: string,
     @Body() body: any,
@@ -77,6 +85,8 @@ class TestController extends CRUD<string> {
 /// HyperModule | CRUDModule
 //////////////////////////////
 
+
+@Scope("module:crud")
 @Middleware((req, res, next) => {
   console.log(`Module level middleware`);
   next();
@@ -88,6 +98,7 @@ class TestController extends CRUD<string> {
 })
 class CRUDModule {}
 
+@Scope("app:admin")
 @Middleware((req, res, next) => {
   console.log(`App level middleware`);
   next();

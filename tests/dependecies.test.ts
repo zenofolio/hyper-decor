@@ -1,5 +1,4 @@
 import { ok } from "assert";
-import { container, injectable } from "tsyringe";
 import {
   Get,
   HyperApp,
@@ -41,7 +40,7 @@ class App {
   }
 }
 
-describe("dependecies: should create an instance of the class", () => {
+describe("Dependecies", () => {
   let app: App;
 
   before(async () => {

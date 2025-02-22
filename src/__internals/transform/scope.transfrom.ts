@@ -3,13 +3,16 @@ import { ScopeMap, ScopeType } from "../../decorators";
 import { NotScopeException } from "../../exeptions";
 import { getScopes } from "../../common/helpers";
 
+type Callback = (
+  middleware: MiddlewareHandler,
+  scopes: ScopeMap[],
+  names: Set<string>
+) => void;
+
+
 export default function scopeTransfrom(
   listScopes: ScopeType[],
-  callback?: (
-    middleware: MiddlewareHandler,
-    scopes: ScopeMap[],
-    names: Set<string>
-  ) => void
+  ...callback: Callback[]
 ): MiddlewareHandler {
   const { scopes, scopeNames, isEmtpy } = resolveScopes(listScopes);
 
@@ -37,8 +40,8 @@ export default function scopeTransfrom(
     return next();
   };
 
-  if (scopeNames.size > 0 && callback) {
-    callback(middleware, scopes, scopeNames);
+  if (scopeNames.size > 0 && callback && callback.length > 0) {
+    for (const cb of callback) cb(middleware, scopes, scopeNames);
   }
 
   return middleware;

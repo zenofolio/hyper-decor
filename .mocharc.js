@@ -1,5 +1,5 @@
 module.exports = {
-    "extension": ["ts"],
-    "spec": "**/*.spec.ts",
+    "extension": ["ts", "cjs"],
+    "spec": "**/*.test.ts",
     "require": "ts-node/register"
 };

@@ -2,8 +2,10 @@ import type {
   MiddlewareHandler,
   Request,
   Response,
+  Server,
   ServerConstructorOptions,
 } from "hyper-express";
+import { IHyperApplication } from "../type";
 
 export type Constructor<R extends any = any> = new (...args: any[]) => R;
 
@@ -43,9 +45,11 @@ export interface HyperAppMetadata {
   options?: ServerConstructorOptions;
 }
 
-export type HyperAppDecorator = (
-  options?: HyperAppMetadata
-) => (target: Constructor) => Constructor;
+export interface HyperAppDecorator {
+  (
+    options?: HyperAppMetadata
+  ): (target: Constructor) => Constructor
+};
 
 ///////////////////////////
 /// Module Options

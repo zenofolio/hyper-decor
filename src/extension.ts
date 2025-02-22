@@ -25,6 +25,9 @@ const requestMethods: Record<string, (this: Request, ...args: any[]) => any> = {
   setScopes(this: Request, scopes: HyperScopeOptions) {
     setScopes(this, scopes);
   },
+  setFullScopes(this: Request) {
+    setScopes(this, ["*"]);
+  },
   hasScopes(this: Request, scopes: HyperScopeOptions) {
     return hasScopes(this, scopes);
   },
@@ -36,8 +39,8 @@ const requestMethods: Record<string, (this: Request, ...args: any[]) => any> = {
     role: HyperRoleOptions,
     scopes: HyperScopeOptions
   ) {
-    this.setRole(role);
-    this.setScopes(scopes);
+    setRole(this, role);
+    setScopes(this, scopes);
   },
 };
 

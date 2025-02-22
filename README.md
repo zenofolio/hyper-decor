@@ -144,7 +144,7 @@ class TestController extends CRUD<string> {
 ```typescript
 @HyperModule({
     path: "users",
-    controllers: [HyperController]
+    controllers: [TestController]
 })
 class UserModule {}
 ```

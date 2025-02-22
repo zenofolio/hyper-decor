@@ -112,6 +112,8 @@ export const HyperApp: HyperAppDecorator = (options) =>
           });
 
           options.logger?.call(this, content.join("\n"));
+          this.storeLogs = {};
+          
         }
       };
     }
@@ -347,7 +349,10 @@ async function prepareRoutes({
 
   const middlewares = [...metadata.middlewares];
   roleTransform(metadata.roles, (middleware) => middlewares.push(middleware));
-  scopeTransfrom(metadata.scopes, (middleware) => middlewares.push(middleware));
+  scopeTransfrom(metadata.scopes, (middleware, scopes) => {
+    middlewares.push(middleware);
+    ScopeStore.addAll(scopes);
+  });
 
   log(
     "routes",
