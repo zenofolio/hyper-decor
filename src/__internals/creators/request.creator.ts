@@ -1,7 +1,6 @@
 import "reflect-metadata";
 import { Request } from "hyper-express";
 import { paramsStore, ByPassKeys } from "../stores/params.store";
-import { extreactArgsNames } from "../utils/function.util";
 import {
   DESIGN_PARAMTYPES,
   KEY_PARAMS_PARAM,
@@ -11,6 +10,7 @@ import { DecoratorHelper, getDecorData } from "../decorator-base";
 import { HyperParamerMetadata, ParameterResolver } from "../../decorators";
 import who from "../helpers/who.helper";
 import WrongPlaceException from "../../exeptions/WrongPlaceException";
+import { extractArgsNames } from "../utils/function.util";
 
 /**
  * Creates a parameter decorator for handling request data.
@@ -41,7 +41,7 @@ export default function createParamDecorator(
 
       const saved = options ?? { params: {} };
 
-      const names = extreactArgsNames(Target[propertyKey]);
+      const names = extractArgsNames(Target[propertyKey]);
       const types = Reflect.getMetadata(DESIGN_PARAMTYPES, Target, propertyKey);
       const name = names?.[parameterIndex];
       const type = types?.[parameterIndex];

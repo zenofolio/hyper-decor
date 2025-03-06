@@ -1,5 +1,5 @@
 import { DecoratorHelper } from "../__internals/decorator-base";
-import { HyperControllerDecorator, HyperControllerMetadata } from "./types";
+import { HyperControllerMetadata } from "./types";
 
 import {
   KEY_PARAMS_CONTROLLER,
@@ -18,6 +18,7 @@ export const HyperController = (
       path: isString ? options : options?.path ?? "/",
       roles: isString ? [] : options?.roles ?? [],
       scopes: isString ? [] : options?.scopes ?? [],
+      imports: isString ? [] : options?.imports ?? [],
     },
   });
 };

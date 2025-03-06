@@ -7,13 +7,16 @@ import {
   Middleware,
   Scope,
   Post,
-  Req, 
+  Req,
   Res,
   Query,
   Body,
   Param,
+  IsSingleton,
+  OnInit,
 } from "../../src/decorators";
 import { IHyperApplication } from "../../src/type";
+import { injectable } from "tsyringe";
 
 abstract class CRUD<ID extends string | number = string> {
   index(req: Request, res: Response): Promise<void> {
@@ -41,6 +44,25 @@ abstract class CRUD<ID extends string | number = string> {
 /////////////////////////////////////
 /// TestController | HyperController
 ////////////////////////////////////
+
+@injectable()
+class UserService implements IsSingleton, OnInit {
+  isSingleton(): boolean {
+    return true;
+  }
+
+  async onInit(): Promise<any> {
+    console.log("initiated");
+  }
+
+  constructor() {
+    console.log("UserService created");
+  }
+
+  async name() {
+    return "John Doe";
+  }
+}
 
 @Scope("controller:unit")
 @Middleware((req, res, next) => {
@@ -85,7 +107,6 @@ class TestController extends CRUD<string> {
 /// HyperModule | CRUDModule
 //////////////////////////////
 
-
 @Scope("module:crud")
 @Middleware((req, res, next) => {
   console.log(`Module level middleware`);
@@ -95,6 +116,7 @@ class TestController extends CRUD<string> {
   path: "/test",
   name: "CRUD Module",
   controllers: [TestController],
+  imports: [UserService],
 })
 class CRUDModule {}
 
@@ -109,6 +131,7 @@ class CRUDModule {}
   description: "Decorators to make express development easier",
   modules: [CRUDModule],
   prefix: "/api",
+  imports: [UserService],
 })
 export class Application implements IHyperApplication {
   onPrepare() {

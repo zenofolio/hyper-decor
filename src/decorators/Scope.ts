@@ -13,11 +13,7 @@ export const Scope =
     scopes: ScopeType<T>
   ): ClassDecorator & MethodDecorator & ParameterDecorator =>
   (target: any, propertyKey?: any, descriptorOrIndex?: any) => {
-    const { isProperty, isMethod } = who(
-      target,
-      propertyKey,
-      descriptorOrIndex
-    );
+    const { isProperty } = who(target, propertyKey, descriptorOrIndex);
 
     if (isProperty) {
       throw new Error(

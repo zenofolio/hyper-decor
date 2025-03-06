@@ -1,6 +1,6 @@
 {
   "name": "@zenofolio/hyper-decor",
-  "version": "1.0.44",
+  "version": "1.0.47",
   "description": "Project core with utilities and features",
   "main": "dist/index.js",
   "author": "zenozaga",
@@ -24,10 +24,8 @@
     "typescript": "5.6.2"
   },
   "dependencies": {
-    "@zenofolio/hyper-decor": "file:",
     "core-decorators": "^0.20.0",
     "file-type": "^19.5.0",
-    "hyper-express-decorators": "file:",
     "reflect-metadata": "^0.2.2",
     "tsyringe": "^4.8.0"
   },

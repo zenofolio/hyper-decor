@@ -1,13 +1,22 @@
 import type {
   MiddlewareHandler,
+  MiddlewareNext,
   Request,
   Response,
   Server,
   ServerConstructorOptions,
 } from "hyper-express";
-import { IHyperApplication } from "../type";
+
+export interface OnInit {
+  onInit(): Promise<any>;
+}
+
+export interface IsSingleton {
+  isSingleton(): boolean;
+}
 
 export type Constructor<R extends any = any> = new (...args: any[]) => R;
+export type ImportType = Constructor<Partial<OnInit> & Partial<IsSingleton>>;
 
 export type ConstructorDecorator = (
   target: Constructor,
@@ -41,15 +50,13 @@ export interface HyperAppMetadata {
   logger?: (...args: any[]) => void;
   logs?: LogSpaces;
   modules: Constructor[];
-  imports?: Constructor[];
+  imports?: ImportType[];
   options?: ServerConstructorOptions;
 }
 
 export interface HyperAppDecorator {
-  (
-    options?: HyperAppMetadata
-  ): (target: Constructor) => Constructor
-};
+  (options?: HyperAppMetadata): (target: Constructor) => Constructor;
+}
 
 ///////////////////////////
 /// Module Options
@@ -62,7 +69,7 @@ export type HyperModuleMetadata = {
   scopes?: string[];
   modules?: Constructor[];
   controllers?: Constructor[];
-  imports?: Constructor[];
+  imports?: ImportType[];
 };
 
 export type HyperModuleDecorator = HyperClassDecorator<HyperModuleMetadata>;
@@ -75,7 +82,7 @@ export type HyperControllerMetadata = {
   path?: string;
   roles?: string[];
   scopes?: string[];
-  imports?: Constructor[];
+  imports?: ImportType[];
 };
 
 export type HyperControllerDecorator = HyperClassDecorator<
@@ -157,8 +164,16 @@ export interface RouteMetadata {
   handler: (...args: any[]) => any;
 }
 
+export abstract class MiddlewareClass {
+  abstract handle(req: Request, res: Response, next: MiddlewareNext): void;
+}
+
+export interface MiddlewareClassConstructor {
+  new (...args: any[]): MiddlewareClass;
+}
+
 /**
  * Type definition for Middleware.
  * Middleware can be a single handler or an array of handlers.
  */
-export type MiddlewareType = MiddlewareHandler | MiddlewareHandler[];
+export type MiddlewareType = MiddlewareHandler | MiddlewareClassConstructor;

@@ -6,6 +6,7 @@ export const KEY_TYPE_CONTROLLER = "hyper:type:controller";
 export const KEY_TYPE_MODULE = "hyper:type:module";
 export const KEY_TYPE_ROUTE = "hyper:type:route";
 export const KEY_TYPE_SERVICE = "hyper:type:service";
+export const KEY_TYPE_GUARD = "hyper:type:guard";
 
 export type KeyTypes =
   | typeof KEY_TYPE_APP

@@ -9,3 +9,4 @@ export * from "./types";
 export * from "./Http";
 export * from "./Pass";
 export * from "./File";
+export * from "./Service";
