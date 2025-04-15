@@ -1,7 +1,7 @@
 import "reflect-metadata";
 import { MiddlewareHandler } from "hyper-express";
 import { KEY_PARAMS_MIDDLEWARES } from "../__internals/constants";
-import MetadatStore from "../__internals/stores";
+import MetadatStore from "../__internals/stores/metadata.store";
 import { MiddlewareType } from "./types";
 
 /**
@@ -9,7 +9,7 @@ import { MiddlewareType } from "./types";
  */
 export const Middleware =
   (...middleware: MiddlewareType[]): ClassDecorator & MethodDecorator =>
-  (Target: any, propertyKey?: any, descriptor?: any) => {
+  (Target: any, propertyKey?: any) => {
     MetadatStore.define(KEY_PARAMS_MIDDLEWARES, middleware, {
       target: Target,
       propertyKey,
@@ -19,22 +19,25 @@ export const Middleware =
 /**
  * Exclude middleware from matching paths.
  *
- * @param expresiosn
+ * @param expressions
  * @param middleware
  * @returns
  */
-Middleware.exclude = (
-  expresiosn: RegExp | RegExp[],
-  middleware: MiddlewareHandler
-) => {
-  return Middleware((req, res, next) => {
-    expresiosn = Array.isArray(expresiosn) ? expresiosn : [expresiosn];
-    const excluude = expresiosn.some((exp) => exp.test(req.path));
-
-    if (excluude) return next();
-    return middleware(req, res, next);
-  });
-};
+Middleware.exclude =
+  (
+    expressions: RegExp | RegExp[],
+    middleware: MiddlewareHandler
+  ): ClassDecorator & MethodDecorator =>
+  (Target: any, propertyKey?: any) => {
+    MetadatStore.define(
+      KEY_PARAMS_MIDDLEWARES,
+      buildHandler("exclude", expressions, middleware),
+      {
+        target: Target,
+        propertyKey,
+      }
+    );
+  };
 
 /**
  * Only run middleware on matching paths.
@@ -43,15 +46,41 @@ Middleware.exclude = (
  * @param middleware
  * @returns
  */
-Middleware.only = (
-  expresiosn: RegExp | RegExp[],
-  middleware: MiddlewareHandler
-) => {
-  return Middleware((req, res, next) => {
-    expresiosn = Array.isArray(expresiosn) ? expresiosn : [expresiosn];
-    const only = expresiosn.some((exp) => exp.test(req.path));
+Middleware.only =
+  (expressions: RegExp | RegExp[], middleware: MiddlewareHandler) =>
+  (Target: any, propertyKey?: any) => {
+    MetadatStore.define(
+      KEY_PARAMS_MIDDLEWARES,
+      buildHandler("only", expressions, middleware),
+      {
+        target: Target,
+        propertyKey,
+      }
+    );
+  };
 
-    if (!only) return next();
+/**
+ *
+ * Helper function to build middleware handlers for "only" and "exclude" modes.
+ *
+ * @param mode
+ * @param expresions
+ * @returns
+ */
+const buildHandler = (
+  mode: "only" | "exclude",
+  expressions: RegExp | RegExp[],
+  middleware: MiddlewareHandler
+): MiddlewareHandler => {
+  const matchers = Array.isArray(expressions) ? expressions : [expressions];
+
+  return (req, res, next) => {
+    const matches = matchers.some((rx) => rx.test(req.path));
+
+    if ((mode === "only" && !matches) || (mode === "exclude" && matches)) {
+      return next();
+    }
+
     return middleware(req, res, next);
-  });
+  };
 };

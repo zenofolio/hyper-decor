@@ -8,11 +8,15 @@ interface PassOptions {
 }
 
 /**
- * This method will pass all checks if the function returns true.
+ * Pass decorator
  *
- * @param options
- * @returns
+ * This decorator allows bypassing checks when the provided function returns `true`.
+ * It can be applied to classes or methods, but not to properties.
+ *
+ * @param options - A function that returns true to allow bypassing
+ * @returns A class or method decorator
  */
+
 export const Pass =
   (options: PassOptions): ClassDecorator & MethodDecorator =>
   (target: any, propertyKey?: any, descriptorOrIndex?: any) => {

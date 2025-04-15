@@ -1,6 +1,6 @@
 {
   "name": "@zenofolio/hyper-decor",
-  "version": "1.0.47",
+  "version": "1.0.60",
   "description": "Project core with utilities and features",
   "main": "dist/index.js",
   "author": "zenozaga",
@@ -15,7 +15,7 @@
     "hyper-express": "^6.17.3"
   },
   "devDependencies": {
-    "@types/file-type": "^10.9.3",
+    "@types/file-type": "10.6.0",
     "@types/mocha": "^10.0.8",
     "chai": "^5.1.2",
     "mocha": "^10.7.3",

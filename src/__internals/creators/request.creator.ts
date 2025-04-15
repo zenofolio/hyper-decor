@@ -1,12 +1,11 @@
 import "reflect-metadata";
-import { Request } from "hyper-express";
-import { paramsStore, ByPassKeys } from "../stores/params.store";
-import {
+import { Request } from "hyper-express/types";
+ import {
   DESIGN_PARAMTYPES,
   KEY_PARAMS_PARAM,
   KEY_TYPE_CONTROLLER,
 } from "../constants";
-import { DecoratorHelper, getDecorData } from "../decorator-base";
+import { DecoratorHelper } from "../decorator-base";
 import { HyperParamerMetadata, ParameterResolver } from "../../decorators";
 import who from "../helpers/who.helper";
 import WrongPlaceException from "../../exeptions/WrongPlaceException";
@@ -20,7 +19,7 @@ import { extractArgsNames } from "../utils/function.util";
  * @returns {ParameterDecorator} - The parameter decorator function.
  */
 export default function createParamDecorator(
-  key: keyof Request | ByPassKeys,
+  key: keyof Request | "req" | "res",
   decoratorName: string,
   resolver: ParameterResolver
 ): ParameterDecorator {

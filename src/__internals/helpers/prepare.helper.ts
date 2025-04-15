@@ -1,6 +1,12 @@
-import { MiddlewareHandler, Request, Response, Router, Server } from "hyper-express";
+import {
+  MiddlewareHandler,
+  Request,
+  Response,
+  Router,
+  Server,
+} from "hyper-express";
 
-import { ScopeStore } from "../../collectors";
+import { ScopeStore } from "../../stores";
 import roleTransform from "../transform/role.transform";
 import scopeTransfrom from "../transform/scope.transfrom";
 import { $each } from "../utils/object.util";
@@ -13,6 +19,7 @@ import {
   HyperParamerMetadata,
   ImportType,
   LogSpaces,
+  OnInit,
   RoleType,
   RouteMetadata,
   ScopeType,
@@ -34,6 +41,7 @@ import { container } from "tsyringe";
 import { RouterList } from "../types";
 import { join } from "../utils/path.util";
 import { prepareImports } from "./imports.helper";
+import { serviceStore } from "../stores/service.store";
 
 interface PrepareTargetParams {
   target: any;
@@ -125,6 +133,7 @@ export async function prepareApplication(
   const prefix = options.prefix ?? "/";
   const imports = options.imports ?? [];
 
+  await prepareServices(serviceStore);
   await prepareImports(Target, imports);
 
   if (data.middlewares.length) {
@@ -294,7 +303,7 @@ async function prepareRoutes({
   namespace,
   log,
 }: PrepareRouteParams) {
-  const { method, path, handler, propertyKey } = route;
+  const { method, path, handler, propertyKey, options } = route;
   const metadata = getData(handler);
   const params = metadata.params?.params?.[propertyKey] ?? [];
   const $fn = Reflect.get(router, method);
@@ -315,6 +324,11 @@ async function prepareRoutes({
   );
 
   if (!hasParams) {
+    if (method === "ws" && options) {
+      router.ws(path, options, handler.bind(instance));
+      return;
+    }
+
     $fn.call(router, path, ...middlewares, handler.bind(instance));
   } else {
     $fn.call(
@@ -333,4 +347,13 @@ async function prepareRoutes({
       }
     );
   }
+}
+
+async function prepareServices(list: Set<any>) {
+  await Promise.all(
+    Array.from(list).map(async (service) => {
+      const instance = container.resolve(service) as OnInit;
+      if (instance.onInit) await instance.onInit();
+    })
+  );
 }

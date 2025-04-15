@@ -1,5 +1,6 @@
 import "reflect-metadata";
 import createRouteDecorator from "../__internals/creators/routes.creator";
+import { WSRouteOptions } from "hyper-express/types";
 
 export const Get = createRouteDecorator("get");
 export const Post = createRouteDecorator("post");
@@ -12,5 +13,5 @@ export const Trace = createRouteDecorator("trace");
 export const Any = createRouteDecorator("any");
 export const All = createRouteDecorator("all");
 export const Connect = createRouteDecorator("connect");
-export const WS = createRouteDecorator("ws");
+export const WS = createRouteDecorator<WSRouteOptions>("ws");
 export const Upgrade = createRouteDecorator("upgrade");

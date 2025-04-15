@@ -108,3 +108,5 @@ export const METADATA_STATE_KEYS = {
   CREATED: "hyper:created",
   PREPARED: "hyper:prepared",
 };
+
+export const FULL_ACCESS = "*";

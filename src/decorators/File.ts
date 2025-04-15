@@ -1,4 +1,4 @@
-import { Request } from "hyper-express";
+import { Request } from "hyper-express/types";
 import { createCustomRequestDecorator } from "./Http";
 import { buffer } from "stream/consumers";
 import HyperFileException from "../exeptions/HyperFileException";

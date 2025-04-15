@@ -1,8 +1,12 @@
-import { injectable } from "tsyringe";
+import { Service } from "../../src";
 
-@injectable()
-export class Service {
+@Service()
+export class UserService {
+  constructor() {
+    console.log("UserService");
+  }
+
   hello() {
-    return "hello"
+    return "hello";
   }
 }

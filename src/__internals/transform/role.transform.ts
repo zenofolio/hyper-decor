@@ -2,6 +2,7 @@ import { MiddlewareHandler } from "hyper-express";
 import { RoleType } from "../../decorators";
 import { NotRoleException } from "../../exeptions";
 import { getRoles } from "../../common/helpers";
+import { FULL_ACCESS } from "../constants";
 
 export default function roleTransform(
   list: RoleType[],
@@ -18,14 +19,13 @@ export default function roleTransform(
   const { roles, names, isEmtpy } = resolveRoles(list);
 
   const middleware: MiddlewareHandler = (req, res, next) => {
-    // if scopes is empty, then we don't need to check for scopes
     if (isEmtpy) return next();
+    const requestRoles = new Set(getRoles(req) ?? []);
 
-    // get the user scopes
-    const requestRoles = getRoles(req);
+    if (requestRoles.size === 0 && isEmtpy) return next();
+    if (requestRoles.has(FULL_ACCESS)) return next();
 
-    // find the first scope that is not in the userScopes
-    const role = roles.find((scope) => requestRoles?.includes(scope.role));
+    const role = roles.some((scope) => requestRoles.has(scope.role));
 
     if (role) {
       return next();
@@ -34,7 +34,7 @@ export default function roleTransform(
     return next(
       new NotRoleException(
         `Only ${Array.from(names).join(", ")} can access this resource`,
-        requestRoles,
+        Array.from(requestRoles),
         Array.from(names)
       )
     );

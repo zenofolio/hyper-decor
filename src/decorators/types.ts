@@ -3,9 +3,12 @@ import type {
   MiddlewareNext,
   Request,
   Response,
-  Server,
   ServerConstructorOptions,
 } from "hyper-express";
+
+//////////////////////////
+/// Boot Interfaces
+//////////////////////////
 
 export interface OnInit {
   onInit(): Promise<any>;
@@ -161,6 +164,7 @@ export interface RouteMetadata {
   method: string;
   path: string;
   propertyKey: string;
+  options?: any;
   handler: (...args: any[]) => any;
 }
 

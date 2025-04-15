@@ -1,6 +1,7 @@
 export * from "./HyperApp";
 export * from "./HyperModule";
 export * from "./HyperController";
+export * from "./HyperService";
 export * from "./Middleware";
 export * from "./Scope";
 export * from "./Role";
@@ -9,4 +10,3 @@ export * from "./types";
 export * from "./Http";
 export * from "./Pass";
 export * from "./File";
-export * from "./Service";

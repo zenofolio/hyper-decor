@@ -1,8 +1,12 @@
 import "reflect-metadata";
-import { KEY_PARAMS_SCOPE, METADATA_KEYS } from "../__internals/constants";
+import {
+  FULL_ACCESS,
+  KEY_PARAMS_SCOPE,
+  METADATA_KEYS,
+} from "../__internals/constants";
 import { ScopeType } from "./types";
 import who from "../__internals/helpers/who.helper";
-import MetadatStore from "../__internals/stores";
+import MetadatStore from "../__internals/stores/metadata.store";
 
 /**
  * Scope decorator for defining access scopes.
