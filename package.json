@@ -6,8 +6,10 @@
   "author": "zenozaga",
   "license": "MIT",
   "scripts": {
-    "test": "mocha",
-    "test:server": "ts-node -r tsconfig-paths/register tests/server.bench.ts",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:ui": "vitest --ui",
+    "test:server": "vitest tests/server.bench.ts",
     "build": "tsc",
     "publish": "npm run build && npm publish --access public"
   },
@@ -16,17 +18,19 @@
   },
   "devDependencies": {
     "@types/file-type": "10.6.0",
-    "@types/mocha": "^10.0.8",
-    "chai": "^5.1.2",
-    "mocha": "^10.7.3",
+    "@vitest/ui": "^4.0.18",
     "nodemon": "3.1.7",
-    "ts-node": "^10.9.2",
-    "typescript": "5.6.2"
+    "typescript": "5.6.2",
+    "unplugin-swc": "^1.5.9",
+    "vitest": "^4.0.18"
   },
   "dependencies": {
     "core-decorators": "^0.20.0",
+    "delay": "^7.0.0",
+    "eventemitter3": "^5.0.4",
     "file-type": "^19.5.0",
     "reflect-metadata": "^0.2.2",
+    "ts-type": "^3.0.8",
     "tsyringe": "^4.8.0"
   },
   "exports": {

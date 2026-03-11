@@ -5,8 +5,8 @@
  * @param body
  * @returns
  */
-export const request = async (endpoint: string, body?: any) => {
-  const request = await fetch(`http://0.0.0.0:3001${endpoint}`, {
+export const request = async (endpoint: string, body?: any, port: number = 3001) => {
+  const request = await fetch(`http://0.0.0.0:${port}${endpoint}`, {
     method: body ? "POST" : "GET",
     headers: {
       "Content-Type": "application/json",

@@ -1,12 +1,12 @@
-import { describe, it } from "mocha";
-import { ok, strictEqual } from "node:assert";
+import "reflect-metadata";
+import { describe, it, beforeAll, afterAll, expect } from "vitest";
 import { request } from "./helpers/request";
 import {
   createApplication,
   Get,
-  HyperApp,
   HyperController,
   HyperModule,
+  HyperApp,
   Res,
   Response,
   Scope,
@@ -21,7 +21,7 @@ class TestController {
     description: "Admin scope",
     message: "You are not allowed to access this resource",
   })
-  test(@Res() res: Response) {
+  handleTest(@Res() res: Response) {
     res.send("Hello World!");
   }
 
@@ -48,26 +48,26 @@ class Application {
 describe("scopes: HyperApp Decorator", () => {
   let app: Server;
 
-  before(async () => {
+  beforeAll(async () => {
     app = await createApplication(Application);
     await app.listen(3001);
   });
 
-  after(async () => {
+  afterAll(async () => {
     await app.close();
   });
 
   it("scopes: Method with Scope", async () => {
     try {
       await request("/test");
-      ok(false,"Should throw an error");
+      expect(true).toBe(false); // Should throw an error
     } catch (error) {
-      ok(true);
+      expect(true).toBe(true);
     }
   });
 
   it("scopes: Should without scope", async () => {
     const data = await request("/test/no-scope");
-    strictEqual(data, "Hello World!");
+    expect(data).toBe("Hello World!");
   });
 });

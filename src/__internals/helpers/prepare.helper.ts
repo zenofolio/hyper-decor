@@ -15,8 +15,9 @@ import { IHyperAppTarget } from "../../type";
 import {
   HyperAppMetadata,
   HyperControllerMetadata,
+  IHyperHooks,
   HyperModuleMetadata,
-  HyperParamerMetadata,
+  HyperParameterMetadata,
   ImportType,
   LogSpaces,
   OnInit,
@@ -41,7 +42,11 @@ import { container } from "tsyringe";
 import { RouterList } from "../types";
 import { join } from "../utils/path.util";
 import { prepareImports } from "./imports.helper";
-import { serviceStore } from "../stores/service.store";
+import { initializeInstance } from "./lifecycle.helper";
+import { METADATA_KEYS } from "../constants";
+import { OnMessageMetadata } from "../../decorators/Messaging";
+import { MessageBus } from "../../common/message-bus";
+import { InternalTransport } from "../../common/transport";
 
 interface PrepareTargetParams {
   target: any;
@@ -54,8 +59,8 @@ interface PrepareTargetParams {
 }
 
 interface PrepareTargetReturn {
-  router: Router;
-  path: string;
+  router?: Router;
+  path?: string;
 }
 
 interface PrepareRouteParams {
@@ -99,8 +104,8 @@ function getData(target: any) {
   };
 
   const params =
-    getDecorData<HyperParamerMetadata>(KEY_PARAMS_PARAM, target) ?? {};
-  const pass = getDecorData<HyperParamerMetadata>(KEY_PARAMS_PASS, target);
+    getDecorData<HyperParameterMetadata>(KEY_PARAMS_PARAM, target) ?? {};
+  const pass = getDecorData<HyperParameterMetadata>(KEY_PARAMS_PASS, target);
 
   return {
     app,
@@ -133,8 +138,28 @@ export async function prepareApplication(
   const prefix = options.prefix ?? "/";
   const imports = options.imports ?? [];
 
-  await prepareServices(serviceStore);
-  await prepareImports(Target, imports);
+  // Register transports if provided, otherwise fallback to internal
+  const bus = container.resolve(MessageBus);
+  if (options?.transports?.length) {
+    options.transports.forEach((t) => bus.registerTransport(t));
+  } else {
+    bus.registerTransport(new InternalTransport());
+  }
+
+  let hooks = options.hooks;
+  if (typeof hooks === "function" && !(hooks instanceof Router)) {
+
+    if (hooks && "constructor" in hooks) {
+      if (container.isRegistered(hooks)) {
+        container.register(hooks, hooks);
+      }
+    }
+
+    hooks = container.resolve(hooks as any);
+  }
+
+  const context = { target: Target, metadata: options, type: "app" };
+  await prepareImports(Target, imports, hooks as IHyperHooks, context);
 
   if (data.middlewares.length) {
     app.use(...data.middlewares);
@@ -157,10 +182,10 @@ export async function prepareApplication(
     log("middleware", `${Target.name} with roles: ${data.roles.join(", ")}`);
   });
 
-  const routers = await Promise.all(
+  const routers = (await Promise.all(
     options.modules.map(async (module) => {
       const data = getData(module);
-      const path = data.module?.path ?? "/";
+      const path = data.module?.path;
       const imports = data.module?.imports ?? [];
       return prepareTarget({
         target: module,
@@ -170,12 +195,13 @@ export async function prepareApplication(
         prefix: path,
         imports: imports,
         log,
+        hooks: hooks as IHyperHooks,
       });
     })
-  );
+  )).filter((r) => r.router);
 
   routers.forEach(({ router, path }) => {
-    app.use(join(prefix, path), router);
+    app.use(join(prefix, path || "/"), router!);
   });
 }
 
@@ -189,41 +215,53 @@ export async function prepareApplication(
 async function prepareTarget({
   target,
   router,
-  prefix = "/",
+  prefix,
   namespace = "",
   instance,
   imports = [],
   log,
-}: PrepareTargetParams): Promise<PrepareTargetReturn> {
-  const _router = router ?? if_router(target);
+  hooks,
+}: PrepareTargetParams & { hooks?: IHyperHooks }): Promise<PrepareTargetReturn> {
   const data = getData(target);
 
   const modules = data.module?.modules ?? [];
   const controllers = data.module?.controllers ?? [];
-  const routes = data.routes ?? [];
+  const routes = data.routes ?? { routes: [] };
 
   const middlewares = data.middlewares ?? [];
   const scopes = data.scopes ?? [];
   const roles = data.roles ?? [];
 
+  const needsRouter =
+    controllers.length > 0 ||
+    routes.routes.size > 0 ||
+    middlewares.length > 0 ||
+    scopes.length > 0 ||
+    roles.length > 0;
+
+  const _router = router ?? (needsRouter ? if_router(target) : undefined);
+
   ////////////////////////////////
   /// Prepare Imports
   ////////////////////////////////
 
-  await prepareImports(target, imports);
+  const context = { target: target, metadata: data, type: "target" };
+  await prepareImports(target, imports, hooks, context);
 
   ////////////////////////////////
-  /// Attach Middlewares
+  /// Attach Middlewares & Security
   ////////////////////////////////
 
-  _router.use(...middlewares);
+  if (_router) {
+    _router.use(...middlewares);
 
-  scopeTransfrom(scopes, (middleware, scopes) => {
-    ScopeStore.addAll(scopes);
-    _router.use(middleware);
-  });
+    scopeTransfrom(scopes, (middleware, scopes) => {
+      ScopeStore.addAll(scopes);
+      _router.use(middleware);
+    });
 
-  roleTransform(roles, (middleware) => _router.use(middleware));
+    roleTransform(roles, (middleware) => _router.use(middleware));
+  }
 
   ////////////////////////////////
   /// Prepare Modules
@@ -233,16 +271,19 @@ async function prepareTarget({
     const moduleData = getData(module);
     if (!moduleData.module) return;
 
-    const router = await prepareTarget({
+    const res = await prepareTarget({
       target: module,
       imports: moduleData.module.imports,
       namespace: `${namespace}/${module.name}`,
       prefix: moduleData.module.path,
       instance: container.resolve(module),
       log,
+      hooks,
     });
 
-    _router.use(router.path, router.router);
+    if (res.router && _router) {
+      _router.use(res.path || "/", res.router);
+    }
   });
 
   // ////////////////////////////////
@@ -254,34 +295,39 @@ async function prepareTarget({
     const controllerData = data.controller;
     if (!controllerData) return;
 
-    const router = await prepareTarget({
+    const res = await prepareTarget({
       target: controller,
       namespace: `${namespace}/${controller.name}`,
       prefix: controllerData.path,
       imports: controllerData.imports,
       instance: container.resolve(controller),
       log,
+      hooks,
     });
 
-    _router.use(router.path, router.router);
+    if (res.router && _router) {
+      _router.use(res.path || "/", res.router);
+    }
   });
 
   ////////////////////////////////
   /// Prepare Routes
   ////////////////////////////////
 
-  await $each(Array.from(routes.routes), async (route) => {
-    if (typeof route !== "object") return;
-    await prepareRoutes({
-      target: target,
-      router: _router,
-      route,
-      namespace,
-      instance,
-      prefix,
-      log,
+  if (_router) {
+    await $each(Array.from(routes.routes), async (route) => {
+      if (typeof route !== "object") return;
+      await prepareRoutes({
+        target: target,
+        router: _router,
+        route,
+        namespace,
+        instance,
+        prefix: prefix || "/",
+        log,
+      });
     });
-  });
+  }
 
   return {
     router: _router,
@@ -336,24 +382,13 @@ async function prepareRoutes({
       path,
       ...middlewares,
       async (req: Request, res: Response) => {
-        const args = await Promise.all(
-          params.map(async (param) => {
-            const { resolver, key } = param;
-            return await resolver(req, res);
-          })
-        );
-
-        return handler.bind(instance)(...args, req, res);
+        const len = params.length;
+        const args = new Array(len);
+        for (let i = 0; i < len; i++) {
+          args[i] = await params[i].resolver(req, res);
+        }
+        return handler.apply(instance, args);
       }
     );
   }
-}
-
-async function prepareServices(list: Set<any>) {
-  await Promise.all(
-    Array.from(list).map(async (service) => {
-      const instance = container.resolve(service) as OnInit;
-      if (instance.onInit) await instance.onInit();
-    })
-  );
 }

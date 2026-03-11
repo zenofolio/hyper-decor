@@ -1,59 +1,47 @@
-// // import { createServer } from "http";
+import "reflect-metadata";
+import { describe, it, expect } from "vitest";
+import { HyperApp, HyperModule, HyperService, OnInit, createApplication, delay } from "../src";
 
-// const hostname = "127.0.0.1";
-// const port = 3001;
+// Simulate many services with artificial delays
+function createMockService(id: number, delayMs: number) {
+  @HyperService()
+  class MockService implements OnInit {
+    async onInit() {
+      await delay(delayMs);
+      // console.log(`Service ${id} initialized`);
+    }
+  }
+  return MockService;
+}
 
-// import { Server, Request, Response } from "hyper-express";
-// import {
-//   Get,
-//   Query,
-//   HyperApp,
-//   HyperController,
-//   HyperModule,
-//   Res,
-// } from "../src/decorators";
+const SERVICE_COUNT = 50;
+const DELAY_PER_SERVICE = 10; // 10ms per service
 
-// @HyperController("/")
-// class UserController {
-//   @Get()
-//   async index(@Query query: any, @Res response: Response) {
-//     const randomString = Math.random().toString(36).substring(7);
+const services = Array.from({ length: SERVICE_COUNT }, (_, i) => createMockService(i, DELAY_PER_SERVICE));
 
-//     response.json({
-//       name: randomString,
-//       email: `${randomString}@gmail.com`,
-//     });
-//   }
-// }
+@HyperModule({
+  path: "/bench",
+  imports: services,
+})
+class BenchModule {}
 
-// @HyperModule({
-//   path: "/",
-//   controllers: [UserController],
-// })
-// class Module {}
+@HyperApp({
+  modules: [BenchModule],
+})
+class BenchApp {}
 
-// @HyperApp({
-//   prefix: "/test",
-//   modules: [Module],
-//   logger: (...args: any[]) => console.log(args),
-// })
-// class App extends Server {}
+describe("Startup Benchmark", () => {
+  it(`should measure startup time for ${SERVICE_COUNT} services with ${DELAY_PER_SERVICE}ms delay each`, async () => {
+    const start = Date.now();
+    const app = await createApplication(BenchApp);
+    const end = Date.now();
+    const duration = end - start;
 
-// const server = new App();
-
-// server.listen(3001).then(() => {
-//   console.log("Server is running on port http://localhost:3001/test/");
-// });
-
-// // const server = App();
-
-// // server.get("/test/", (res) => {
-// //   const randomString = Math.random().toString(36).substring(7);
-
-// //   res.end(`${randomString}`);
-// // });
-
-// // server.listen(port, (token) => {
-// //   console.log(`Server is running on port http://localhost:${port}/test/`);
-// // });
-
+    console.log(`\n🚀 Startup duration: ${duration}ms`);
+    console.log(`📈 Expected sequential: ~${SERVICE_COUNT * DELAY_PER_SERVICE}ms`);
+    console.log(`📉 Expected parallel: ~${DELAY_PER_SERVICE}ms (plus overhead)`);
+    
+    expect(duration).toBeGreaterThan(0);
+    await app.close();
+  });
+});

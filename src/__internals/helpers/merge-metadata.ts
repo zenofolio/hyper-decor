@@ -19,39 +19,36 @@ export function mergeMetadata(
   keys: MetadataKey[],
   options: MergeOptions = {}
 ): void {
-  for (const key of keys) {
+  for (let i = 0; i < keys.length; i++) {
+    const key = keys[i];
     const sourceMeta = Reflect.getMetadata(key, source);
-    const targetMeta = Reflect.getMetadata(key, target);
-
     if (sourceMeta === undefined) continue;
 
-    let mergedMeta = sourceMeta;
-    if (typeof sourceMeta === "object" && typeof targetMeta === "object") {
-      mergedMeta = deepMerge(targetMeta, sourceMeta, options);
-    }
-
-    Reflect.defineMetadata(key, mergedMeta, target);
+    const targetMeta = Reflect.getMetadata(key, target);
+    Reflect.defineMetadata(
+      key,
+      targetMeta === undefined ? sourceMeta : deepMerge(targetMeta, sourceMeta, options),
+      target
+    );
   }
 }
 
-/**
- * Performs a deep merge of two objects.
- * @param target Target object.
- * @param source Source object.
- * @param options Merge options.
- * @returns Merged object.
- */
 function deepMerge<T>(target: T, source: T, options: MergeOptions): T {
   if (Array.isArray(target) && Array.isArray(source)) {
-    return (options.overwriteArrays ? source : Array.from(new Set([...target, ...source]))) as T;
+    if (options.overwriteArrays) return source;
+    // Faster deduplication for primitive arrays
+    const combined = target.concat(source);
+    return Array.from(new Set(combined)) as any;
   }
 
-  if (typeof target === "object" && target !== null && typeof source === "object" && source !== null) {
-    const merged = { ...target } as any;
-    for (const key of Object.keys(source)) {
-      merged[key] = deepMerge((target as any)[key], (source as any)[key], options);
+  if (source && typeof source === "object" && target && typeof target === "object") {
+    const result = { ...target } as any;
+    const sourceKeys = Object.keys(source);
+    for (let i = 0; i < sourceKeys.length; i++) {
+        const k = sourceKeys[i];
+        result[k] = deepMerge(result[k], (source as any)[k], options);
     }
-    return merged;
+    return result;
   }
 
   return source;

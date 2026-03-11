@@ -1,6 +1,6 @@
-import { Service } from "../../src";
+import { HyperService } from "../../src";
 
-@Service()
+@HyperService()
 export class UserService {
   constructor() {
     console.log("UserService");

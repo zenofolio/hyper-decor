@@ -6,7 +6,7 @@ import { Request } from "hyper-express/types";
   KEY_TYPE_CONTROLLER,
 } from "../constants";
 import { DecoratorHelper } from "../decorator-base";
-import { HyperParamerMetadata, ParameterResolver } from "../../decorators";
+import { HyperParameterMetadata, ParameterResolver } from "../../decorators";
 import who from "../helpers/who.helper";
 import WrongPlaceException from "../../exeptions/WrongPlaceException";
 import { extractArgsNames } from "../utils/function.util";
@@ -24,7 +24,7 @@ export default function createParamDecorator(
   resolver: ParameterResolver
 ): ParameterDecorator {
   const _key = key as string;
-  return DecoratorHelper<HyperParamerMetadata>({
+  return DecoratorHelper<HyperParameterMetadata>({
     type: KEY_TYPE_CONTROLLER,
     key: KEY_PARAMS_PARAM,
     options: (options, Target, propertyKey, parameterIndex) => {

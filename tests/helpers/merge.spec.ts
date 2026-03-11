@@ -1,5 +1,5 @@
-import { describe } from "mocha";
-import { ok } from "assert";
+import { describe, it, expect } from "vitest";
+import "reflect-metadata";
 import { mergeMetadata } from "../../src/__internals/helpers/merge-metadata";
 
 class A {}
@@ -34,10 +34,10 @@ describe("mergeMetadata: should merge metadata from two classes", () => {
 
     const metadataA = Reflect.getMetadata("key", A);
 
-    ok(metadataA.fields.includes("personal"));
-    ok(metadataA.fields.includes("phone"));
+    expect(metadataA.fields).toContain("personal");
+    expect(metadataA.fields).toContain("phone");
 
-    ok(metadataA.contries.USA.includes("New York"));
-    ok(metadataA.contries.USA.includes("California"));
+    expect(metadataA.contries.USA).toContain("New York");
+    expect(metadataA.contries.USA).toContain("California");
   });
 });

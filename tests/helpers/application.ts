@@ -1,4 +1,5 @@
-import { Response } from "hyper-express";
+import "reflect-metadata";
+import { Request, Response } from "hyper-express";
 import {
   Get,
   HyperApp,

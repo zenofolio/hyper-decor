@@ -1,60 +1,59 @@
-// import { ok } from "assert";
-// import {
-//   Get,
-//   HyperApp,
-//   HyperController,
-//   HyperModule,
-//   createApplication,
-// } from "../src";
-// import { describe, test } from "mocha";
-// import { UserService } from "./helpers/service";
-// import { Request, Response } from "hyper-express";
-// import { request } from "./helpers/request";
+import "reflect-metadata";
+import { describe, it, beforeAll, afterAll, expect } from "vitest";
+import {
+  Get,
+  HyperApp,
+  HyperController,
+  HyperModule,
+  createApplication,
+} from "../src";
+import { UserService } from "./helpers/service";
+import { Request, Response } from "hyper-express";
+import { request } from "./helpers/request";
 
-// @HyperController()
-// class UserController {
-//   constructor(private service: UserService) {}
+@HyperController()
+class UserController {
+  constructor(private service: UserService) { }
 
-//   @Get("/")
-//   async user(request: Request, response: Response) {
-//     response.json({ message: this.service.hello() });
-//   }
-// }
+  @Get("/")
+  async user(request: Request, response: Response) {
+    response.json({ message: this.service.hello() });
+  }
+}
 
-// @HyperModule({
-//   path: "/",
-//   controllers: [UserController],
-// })
-// class Module {}
+@HyperModule({
+  path: "/",
+  controllers: [UserController],
+})
+class Module { }
 
-// @HyperApp({
-//   prefix: "/api",
-//   modules: [Module],
-//   options: {
-//     max_body_length: 1024 * 1024 * 10,
-//   },
-// })
-// class App {
-//   onPrepare() {
-//     console.log("App is prepared");
-//   }
-// }
+@HyperApp({
+  prefix: "/api",
+  modules: [Module],
+  options: {
+    max_body_length: 1024 * 1024 * 10,
+  },
+})
+class App {
+  onPrepare() {
+    console.log("App is prepared");
+  }
+}
 
-// describe("Dependecies", () => {
-//   let app: App;
+describe("Dependencies", () => {
+  let app: any;
 
-//   before(async () => {
-//     const server = await createApplication(App);
-//     server.listen(3001, () => console.log(`Server is running on port 3001`));
-//     app = server;
-//   });
+  beforeAll(async () => {
+    app = await createApplication(App);
+    await app.listen(3002);
+  });
 
-//   after(() => {
-//     (app as any).close();
-//   });
+  afterAll(async () => {
+    await app.close();
+  });
 
-//   test("dependecies: should create an instance of the class", async () => {
-//     const data = JSON.parse(await request("/api/"));
-//     ok(data.message === "hello");
-//   });
-// });
+  it("dependencies: should create an instance of the class", async () => {
+    const data = JSON.parse(await request("/api/", undefined, 3002));
+    expect(data.message).toBe("hello");
+  });
+});

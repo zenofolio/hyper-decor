@@ -6,6 +6,9 @@ import type {
   ServerConstructorOptions,
 } from "hyper-express";
 
+import { InjectionToken, RegistrationOptions } from "tsyringe"
+import { IMessageTransport } from "../common/transport";
+
 //////////////////////////
 /// Boot Interfaces
 //////////////////////////
@@ -19,7 +22,20 @@ export interface IsSingleton {
 }
 
 export type Constructor<R extends any = any> = new (...args: any[]) => R;
-export type ImportType = Constructor<Partial<OnInit> & Partial<IsSingleton>>;
+
+export type ImportObject = {
+  token: InjectionToken;
+  useClass?: Constructor;
+  useValue?: any;
+  useFactory?: (...args: any[]) => any;
+  useToken?: InjectionToken;
+  options?: RegistrationOptions;
+};
+
+export type ImportType =
+  | Constructor<Partial<OnInit> & Partial<IsSingleton>>
+  | InjectionToken
+  | ImportObject;
 
 export type ConstructorDecorator = (
   target: Constructor,
@@ -43,6 +59,11 @@ export interface LogSpaces {
   routes: boolean;
 }
 
+export interface IHyperHooks {
+  onBeforeInit?(instance: any, token: any, context: any): void | Promise<void>;
+  onAfterInit?(instance: any, token: any, context: any): void | Promise<void>;
+}
+
 export interface HyperAppMetadata {
   name?: string;
   version?: string;
@@ -55,6 +76,8 @@ export interface HyperAppMetadata {
   modules: Constructor[];
   imports?: ImportType[];
   options?: ServerConstructorOptions;
+  transports?: IMessageTransport[];
+  hooks?: IHyperHooks | Constructor<IHyperHooks>;
 }
 
 export interface HyperAppDecorator {
@@ -66,7 +89,7 @@ export interface HyperAppDecorator {
 ///////////////////////////
 
 export type HyperModuleMetadata = {
-  path: string;
+  path?: string;
   name?: string;
   roles?: string[];
   scopes?: string[];
@@ -101,7 +124,7 @@ export type ParameterResolver = (
   res: Response
 ) => any | Promise<any>;
 
-export type HyperParamerMetadata = {
+export type HyperParameterMetadata = {
   params: Record<
     string,
     {
@@ -173,7 +196,7 @@ export abstract class MiddlewareClass {
 }
 
 export interface MiddlewareClassConstructor {
-  new (...args: any[]): MiddlewareClass;
+  new(...args: any[]): MiddlewareClass;
 }
 
 /**

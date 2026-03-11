@@ -115,6 +115,10 @@ export function DecoratorHelper<T, Target extends any = any>(
       } else {
         defineDecorData(key, { type, ...options }, Target);
         value = Reflect.decorate(transforms, Target as any) as any;
+        // If the class was wrapped/replaced, apply metadata to the new class too
+        if (value && value !== Target) {
+          defineDecorData(key, { type, ...options }, value);
+        }
       }
     }
 
@@ -123,6 +127,8 @@ export function DecoratorHelper<T, Target extends any = any>(
     return value;
   };
 }
+
+const METADATA_CACHE = new WeakMap<any, Map<string, any>>();
 
 export const defineDecorData = <T>(
   key: string,
@@ -146,23 +152,55 @@ export const defineDecorData = <T>(
   } else {
     Reflect.defineMetadata(key, value, target);
   }
+
+  // Update Cache
+  let targetCache = METADATA_CACHE.get(target);
+  if (!targetCache) {
+    targetCache = new Map();
+    METADATA_CACHE.set(target, targetCache);
+  }
+  targetCache.set(property ? `${key}:${property}` : key, value);
 };
 
-export const getDecorData = <T>(key: string, target: any, property?: any): T =>
-  property
+export const getDecorData = <T>(key: string, target: any, property?: any): T => {
+  const cacheKey = property ? `${key}:${property}` : key;
+  const targetCache = METADATA_CACHE.get(target);
+  if (targetCache && targetCache.has(cacheKey)) {
+    return targetCache.get(cacheKey);
+  }
+
+  const value = property
     ? Reflect.getMetadata(key, target, property)
     : Reflect.getMetadata(key, target);
 
-export const hasDecorData = (key: string, target: any, property?: any) =>
-  property
+  if (value !== undefined) {
+    let tc = METADATA_CACHE.get(target);
+    if (!tc) {
+      tc = new Map();
+      METADATA_CACHE.set(target, tc);
+    }
+    tc.set(cacheKey, value);
+  }
+
+  return value;
+};
+
+export const hasDecorData = (key: string, target: any, property?: any) => {
+  const cacheKey = property ? `${key}:${property}` : key;
+  const targetCache = METADATA_CACHE.get(target);
+  if (targetCache && targetCache.has(cacheKey)) return true;
+
+  return property
     ? Reflect.hasMetadata(key, target, property)
     : Reflect.hasMetadata(key, target);
+};
 
 export const extractDecorData = <T>(target: any): T | undefined => {
   const keys = Reflect.getMetadataKeys(target);
-
-  return keys.reduce((acc, key) => {
-    acc[key] = Reflect.getMetadata(key, target);
-    return acc;
-  }, {} as any);
+  const result = {} as any;
+  for (let i = 0; i < keys.length; i++) {
+    const key = keys[i];
+    result[key] = getDecorData(key, target);
+  }
+  return result;
 };

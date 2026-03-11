@@ -1,5 +1,6 @@
 import "reflect-metadata";
 import { Server } from "hyper-express";
+import { container } from "tsyringe";
 
 import {
   KEY_PARAMS_APP,
@@ -39,6 +40,7 @@ export const HyperApp: HyperAppDecorator = (options) =>
         }
 
         async prepare() {
+          container.registerInstance(Server, this);
           this.mergeMetadata(Target);
           await this.applyOptions(Target);
         }

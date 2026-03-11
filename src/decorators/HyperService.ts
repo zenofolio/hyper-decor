@@ -1,9 +1,10 @@
-import { container } from "tsyringe";
+import { container, injectable } from "tsyringe";
 import { serviceStore } from "../__internals/stores/service.store";
 import { Constructor } from "./types";
 
 interface ServiceDecoratorOptions {
   singleton?: boolean;
+  token?: string | symbol;
 }
 
 /**
@@ -15,17 +16,24 @@ interface ServiceDecoratorOptions {
  * @param options.singleton - Whether to register as a singleton (default: true)
  */
 export const HyperService = ({
+  token,
   singleton = true,
 }: ServiceDecoratorOptions = {}) => {
   return (target: Constructor) => {
-    if (!container.isRegistered(target)) {
+    const useToken = token ?? target;
+    injectable()(target);
+
+    if (!container.isRegistered(useToken)) {
       if (singleton) {
-        container.registerSingleton(target);
+        container.registerSingleton(useToken, target);
       } else {
-        container.register(target, { useClass: target });
+        container.register(useToken, { useClass: target });
       }
     }
+
 
     serviceStore.add(target);
   };
 };
+
+

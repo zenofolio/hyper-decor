@@ -85,6 +85,7 @@ export const METADATA_KEYS = {
   SCOPES: "hyper:scopes",
   SCOPED: "hyper:scoped",
   MIDDLEWARES: "hyper:middleware",
+  ON_MESSAGE: "hyper:on_message",
 };
 
 export const METADATA_STORE_KEYS = {
