@@ -26,11 +26,10 @@ export default function scopeTransfrom(
       );
     }
 
-    const userScopes = new Set(userScopesRaw);
-    if (userScopes.has(FULL_ACCESS)) return next();
+    if (userScopesRaw.includes(FULL_ACCESS)) return next();
 
     for (const scope of scopes) {
-      if (!userScopes.has(scope.scope)) {
+      if (!userScopesRaw.includes(scope.scope)) {
         return next(
           new NotScopeException(
             scope.message ?? `FORBIDDEN`,

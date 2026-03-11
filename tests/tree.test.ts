@@ -11,24 +11,25 @@ import {
 @HyperController({ path: "/user" })
 class UserController {
   @Get("/:id")
-  getUser() {}
+  getUser() { }
 }
 
 @HyperModule({
   path: "/v1",
   controllers: [UserController],
 })
-class V1Module {}
+class V1Module { }
 
 @HyperApp({
   modules: [V1Module],
 })
-class App {}
+class App { }
 
 describe("Tree Extraction", () => {
   it("should extract the correct application tree", () => {
     const tree = getAppTree(App);
-    
+    console.log(tree);
+
     expect(tree.app).toBeDefined();
     expect(tree.modules.length).toBe(1);
     expect(tree.modules[0].metadata.path).toBe("/v1");

@@ -20,12 +20,12 @@ export default function roleTransform(
 
   const middleware: MiddlewareHandler = (req, res, next) => {
     if (isEmtpy) return next();
-    const requestRoles = new Set(getRoles(req) ?? []);
+    const requestRoles = getRoles(req) ?? [];
 
-    if (requestRoles.size === 0 && isEmtpy) return next();
-    if (requestRoles.has(FULL_ACCESS)) return next();
+    if (requestRoles.length === 0 && isEmtpy) return next();
+    if (requestRoles.includes(FULL_ACCESS)) return next();
 
-    const role = roles.some((scope) => requestRoles.has(scope.role));
+    const role = roles.some((scope) => requestRoles.includes(scope.role));
 
     if (role) {
       return next();
@@ -34,7 +34,7 @@ export default function roleTransform(
     return next(
       new NotRoleException(
         `Only ${Array.from(names).join(", ")} can access this resource`,
-        Array.from(requestRoles),
+        requestRoles,
         Array.from(names)
       )
     );

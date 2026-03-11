@@ -79,8 +79,11 @@ export async function prepareImports(_target: any, imports: ImportType[], hooks?
             });
           }
         }
-      } catch (e) {
+      } catch (e: any) {
         // Skip dependencies that cannot be resolved automatically
+        // Log a warning to prevent silent failures in production
+        const name = typeof token === "function" ? token.name : String(token);
+        console.warn(`[HyperDecor] Warn: Could not resolve dependency for token "${name}". It might be missing injectable() or not exported correctly.`);
       }
     })
   );
