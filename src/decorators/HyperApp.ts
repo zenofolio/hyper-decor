@@ -27,7 +27,11 @@ export const HyperApp: HyperAppDecorator = (options) =>
     {
       type: KEY_TYPE_APP,
       key: KEY_PARAMS_APP,
-      options: options ?? { modules: [] },
+      options: {
+        modules: [],
+        logger: console.log,
+        ...options,
+      },
     },
     (options, Target) => {
       return class extends Server {

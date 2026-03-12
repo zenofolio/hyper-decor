@@ -9,3 +9,5 @@ src/
 .env
 *.log
 examples/
+**/.ai-context/
+**/examples

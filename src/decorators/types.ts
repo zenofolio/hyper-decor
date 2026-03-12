@@ -54,6 +54,7 @@ export type HyperMethodDecorator<T> = (
 ///////////////////////////
 
 export interface LogSpaces {
+  modules: boolean;
   controllers: boolean;
   middleware: boolean;
   routes: boolean;
@@ -72,7 +73,7 @@ export interface HyperAppMetadata {
   license?: string;
   prefix?: string;
   logger?: (...args: any[]) => void;
-  logs?: LogSpaces;
+  logs?: Partial<LogSpaces>;
   modules: Constructor[];
   imports?: ImportType[];
   options?: ServerConstructorOptions;

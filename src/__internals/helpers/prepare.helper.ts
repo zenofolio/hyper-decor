@@ -224,6 +224,12 @@ async function prepareTarget({
 }: PrepareTargetParams & { hooks?: IHyperHooks }): Promise<PrepareTargetReturn> {
   const data = getData(target);
 
+  if (data.module) {
+    log("modules", `${namespace} { ${prefix || "/"} }`);
+  } else if (data.controller) {
+    log("controllers", `${namespace} { ${prefix || "/"} }`);
+  }
+
   const modules = data.module?.modules ?? [];
   const controllers = data.module?.controllers ?? [];
   const routes = data.routes ?? { routes: [] };

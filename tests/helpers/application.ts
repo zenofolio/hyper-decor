@@ -119,7 +119,7 @@ class TestController extends CRUD<string> {
   controllers: [TestController],
   imports: [UserService],
 })
-class CRUDModule {}
+class CRUDModule { }
 
 @Scope("app:admin")
 @Middleware((req, res, next) => {

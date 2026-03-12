@@ -1,0 +1,62 @@
+instructions:
+  - CRITICAL: AI agents must read and understand this .ai-context folder FIRST before making any changes
+  - All modifications must follow the rules and patterns established in this context
+  - When in doubt, ask for clarification rather than assuming or improvising
+  - Always test changes locally before suggesting modifications
+  - Preserve the existing architecture and design patterns
+
+project:
+  name: "hyper-decor"
+  description: "High-performance TypeScript library for building REST APIs using decorators with HyperExpress, providing NestJS-like developer experience with superior performance"
+  type: "library"
+  framework: "HyperExpress"
+  language: "TypeScript"
+  version: "1.0.61"
+  status: "production-ready"
+  performance_target: "45k+ req/sec"
+  main_features:
+    - "NestJS-style decorators"
+    - "High-performance HyperExpress backend" 
+    - "TypeScript strict mode"
+    - "Dependency injection with tsyringe"
+    - "Role-based security system"
+    - "OpenAPI auto-generation"
+    - "Middleware system"
+  
+tasks:
+  path: ./tasks/
+  description: Agent-executable tasks. Each file is a task. To execute, use 'run task:<number>'.
+  priority_tasks:
+    1: "project_review.md - ALWAYS run first to understand current state"
+    2: "create_decorator.md - Generate new decorators following established patterns"
+    3: "optimize_performance.md - Performance analysis and improvements"
+    4: "fix_tests.md - Resolve test issues and improve coverage"
+  list:
+    - README.md: Instructions and usage for adding and running tasks
+    - project_review.md: Complete analysis of hyper-decor architecture  
+    - create_decorator.md: Generate new decorators following project patterns
+    - optimize_performance.md: Performance analysis and benchmarking
+    - fix_tests.md: Test fixing and improvement strategies
+    - validate_build.md: Build validation and deployment checks
+
+version: 1.0
+
+rules:
+  path: ./rules.md
+  description: Project-wide coding conventions, decorator patterns, and error handling for hyper-decor
+
+knowledge:
+  path: ./knowledge/
+  description: Technical documentation, ADRs, and HyperExpress integration notes
+
+apis:
+  path: ./apis/
+  description: OpenAPI specifications and API contracts for hyper-decor endpoints
+
+templates:
+  path: ./templates/
+  description: Code templates for decorators, controllers, services, and modules
+
+goals:
+  path: ./goals/
+  description: Step-by-step development goals and feature implementation guides
