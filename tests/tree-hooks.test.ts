@@ -47,12 +47,14 @@ describe("Enhanced Application Tree", () => {
     expect(tree.app.fullPath).toBe("/api");
 
     // Verify Module
-    const mod = tree.modules[0];
+    const mod = tree.modules['TestModule'];
+    expect(mod).toBeDefined();
     expect(mod.fullPath).toBe("/api/mod");
     expect(mod.services).toContain(SubService);
 
     // Verify Controller
-    const ctrl = mod.controllers[0];
+    const ctrl = mod.controllers['TestController'];
+    expect(ctrl).toBeDefined();
     expect(ctrl.fullPath).toBe("/api/mod/test");
 
     // Verify Route

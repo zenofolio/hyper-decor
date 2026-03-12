@@ -23,7 +23,7 @@ export const Query = (key?: string, transfrom?: (data: any) => any) =>
  */
 export const Body = <T, R>(resolver?: (data: T) => R) =>
   createParamDecorator("req", "BODY", async (request) => {
-    const value = await request.json<T>();
+    const value = (request as any).body !== undefined ? (request as any).body : await request.json<T>();
     return resolver ? resolver(value) : value;
   });
 

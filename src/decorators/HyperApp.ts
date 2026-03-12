@@ -11,16 +11,12 @@ import {
   KEY_TYPE_APP,
 } from "../__internals/constants";
 
-import { IHyperAppTarget } from "../type";
+import { IHyperAppTarget, IHyperApp } from "../type";
 import { DecoratorHelper } from "../__internals/decorator-base";
 import { mergeMetadata } from "../__internals/helpers/merge-metadata";
-import { HyperAppMetadata, HyperAppDecorator, LogSpaces } from "./types";
+import { HyperAppMetadata, HyperAppDecorator, LogSpaces, Constructor } from "./types";
+import { transformRegistry, TransformerInput } from "../__internals/transform/transform.registry";
 import { prepareApplication } from "../__internals/helpers/prepare.helper";
-
-/**
- * Decorator to define the main application class with assigned modules.
- * @param modules - List of modules to be used in the application.
- */
 
 export const HyperApp: HyperAppDecorator = (options) =>
   DecoratorHelper<HyperAppMetadata, IHyperAppTarget>(
@@ -35,12 +31,18 @@ export const HyperApp: HyperAppDecorator = (options) =>
     },
     (options, Target) => {
       return class extends Server {
-        private listArguments: any[] = [];
+        private listArguments: unknown[] = [];
         private storeLogs: Record<string, string[]> = {};
 
-        constructor(...args: any[]) {
+        constructor(...args: unknown[]) {
           super(options.options);
           this.listArguments = args;
+        }
+
+        /** Registers an agnostic transformer (Zod, Joi, etc.) */
+        useTransform(transformer: TransformerInput): IHyperApp<this> {
+          transformRegistry.register(transformer);
+          return this as any;
         }
 
         async prepare() {
@@ -50,7 +52,7 @@ export const HyperApp: HyperAppDecorator = (options) =>
         }
 
         /** Fusiona los metadatos relevantes al Target */
-        private mergeMetadata(targetPrototype: any) {
+        private mergeMetadata(targetPrototype: Constructor | Function) {
           mergeMetadata(targetPrototype, this.constructor, [
             KEY_PARAMS_MIDDLEWARES,
             KEY_PARAMS_SCOPE,
@@ -60,10 +62,12 @@ export const HyperApp: HyperAppDecorator = (options) =>
         }
 
         /** Aplica las opciones y prepara la instancia del Target */
-        private async applyOptions(Target: any) {
+        private async applyOptions(Target: Constructor) {
           await prepareApplication(options, Target, this, this.log.bind(this));
           const target = Reflect.construct(Target, this.listArguments);
-          (target as any)?.onPrepare?.();
+          if (target && typeof target === 'object' && 'onPrepare' in target) {
+            (target as any).onPrepare();
+          }
           this.showLogs();
         }
 

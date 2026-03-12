@@ -28,15 +28,19 @@ class App { }
 describe("Tree Extraction", () => {
   it("should extract the correct application tree", () => {
     const tree = getAppTree(App);
-    console.log(tree);
+    console.log(JSON.stringify(tree, null, 2));
 
     expect(tree.app).toBeDefined();
-    expect(tree.modules.length).toBe(1);
-    expect(tree.modules[0].metadata.path).toBe("/v1");
-    expect(tree.modules[0].controllers.length).toBe(1);
-    expect(tree.modules[0].controllers[0].metadata.path).toBe("/user");
-    expect(tree.modules[0].controllers[0].routes.length).toBe(1);
-    expect(tree.modules[0].controllers[0].routes[0].path).toBe("/:id");
-    expect(tree.modules[0].controllers[0].routes[0].method).toBe("get");
+    expect(tree.modules["V1Module"]).toBeDefined();
+    expect(tree.modules["V1Module"].metadata.path).toBe("/v1");
+    expect(tree.modules["V1Module"].controllers["UserController"]).toBeDefined();
+    expect(tree.modules["V1Module"].controllers["UserController"].metadata.path).toBe("/user");
+    expect(tree.modules["V1Module"].controllers["UserController"].routes.length).toBe(1);
+    expect(tree.modules["V1Module"].controllers["UserController"].routes[0].path).toBe("/:id");
+    expect(tree.modules["V1Module"].controllers["UserController"].routes[0].method).toBe("get");
+
+    // Verify flattened paths
+    expect(tree.paths["/v1/user/:id"]).toBeDefined();
+    expect(tree.paths["/v1/user/:id"][0].method).toBe("get");
   });
 });

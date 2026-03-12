@@ -1,22 +1,23 @@
 import "reflect-metadata";
 import { describe, it, expect } from "vitest";
-import { 
-  HyperApp, 
-  HyperModule, 
-  HyperService, 
+import {
+  HyperApp,
+  HyperModule,
+  HyperService,
   HyperController,
   Get,
   Res,
   Response,
-  OnInit, 
-  createApplication, 
-  delay 
+  OnInit,
+  createApplication,
 } from "../src";
 import { container, inject, delay as tdelay, injectable } from "tsyringe";
 import { request } from "./helpers/request";
 
 // Global counter to verify execution
 let initCounter = 0;
+
+const delay = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
 
 @injectable()
 @HyperService()
@@ -53,17 +54,17 @@ class BenchController {
   imports: [StaticServiceA, StaticServiceB],
   controllers: [BenchController]
 })
-class BenchModule {}
+class BenchModule { }
 
 @HyperApp({
   modules: [BenchModule]
 })
-class App {}
+class App { }
 
 @injectable()
 @HyperService()
 class CircularA implements OnInit {
-  constructor(@inject(tdelay(() => CircularB)) public b: any) {}
+  constructor(@inject(tdelay(() => CircularB)) public b: any) { }
   async onInit() {
     await delay(10);
     initCounter++;
@@ -74,7 +75,7 @@ class CircularA implements OnInit {
 @injectable()
 @HyperService()
 class CircularB implements OnInit {
-  constructor(@inject(tdelay(() => CircularA)) public a: any) {}
+  constructor(@inject(tdelay(() => CircularA)) public a: any) { }
   async onInit() {
     await delay(10);
     initCounter++;
@@ -85,12 +86,12 @@ class CircularB implements OnInit {
 @HyperModule({
   imports: [CircularA, CircularB]
 })
-class CircularModule {}
+class CircularModule { }
 
 @HyperApp({
   modules: [CircularModule]
 })
-class CircularApp {}
+class CircularApp { }
 
 describe("Enhanced Performance & Robustness Benchmark", () => {
   it(`should verify service execution and fetch liveliness`, async () => {
@@ -123,7 +124,7 @@ describe("Enhanced Performance & Robustness Benchmark", () => {
     initCounter = 0; // Reset for this clean test
 
     const app = await createApplication(CircularApp);
-    
+
     // Resolve classes to verify they exist and are correctly injected
     const a = container.resolve(CircularA);
     const b = container.resolve(CircularB);

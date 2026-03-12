@@ -1,7 +1,7 @@
 import {
   MiddlewareHandler,
-  Request,
-  Response,
+  Request as HE_Request,
+  Response as HE_Response,
   Router,
   Server,
 } from "hyper-express";
@@ -43,10 +43,11 @@ import { RouterList } from "../types";
 import { join } from "../utils/path.util";
 import { prepareImports } from "./imports.helper";
 import { initializeInstance } from "./lifecycle.helper";
-import { METADATA_KEYS } from "../constants";
+import { METADATA_KEYS, KEY_PARAMS_TRANSFORM } from "../constants";
 import { OnMessageMetadata } from "../../decorators/Messaging";
 import { MessageBus } from "../../common/message-bus";
 import { InternalTransport } from "../../common/transport";
+import { transformRegistry } from "../transform/transform.registry";
 
 interface PrepareTargetParams {
   target: any;
@@ -364,6 +365,39 @@ async function prepareRoutes({
   if (!$fn) return;
 
   const middlewares = [...metadata.middlewares];
+
+  // Agnostic Transform Integration
+  const transform = getDecorData<any>(KEY_PARAMS_TRANSFORM, target.prototype || target, propertyKey);
+  if (transform) {
+    middlewares.push(async (req: HE_Request, res: HE_Response, next: any) => {
+      try {
+        const from = transform.options.from || "body";
+        let data;
+        if (from === "body") {
+          data = (req as any).body !== undefined ? (req as any).body : await req.json();
+        } else {
+          data = (req as any)[from];
+        }
+        
+        // Resolve through the chain of responsibility
+        const transformed = await transformRegistry.resolve({
+          data,
+          schema: transform.schema,
+          options: transform.options,
+          req,
+          res,
+          from
+        });
+        
+        // Update the request object
+        (req as any)[from] = transformed;
+        next();
+      } catch (err) {
+        next(err);
+      }
+    });
+  }
+
   roleTransform(metadata.roles, (middleware) => middlewares.push(middleware));
   scopeTransfrom(metadata.scopes, (middleware, scopes) => {
     middlewares.push(middleware);
@@ -387,7 +421,7 @@ async function prepareRoutes({
       router,
       path,
       ...middlewares,
-      async (req: Request, res: Response) => {
+      async (req: HE_Request, res: HE_Response) => {
         const len = params.length;
         const args = new Array(len);
         for (let i = 0; i < len; i++) {

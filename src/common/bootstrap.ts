@@ -19,7 +19,7 @@ export default async function createApplication<T extends IHyperApplication>(
     await MessageBus.emit(topic, data);
   };
 
-  return instance as IHyperApp<T>;
+  return instance as unknown as IHyperApp<T>;
 }
 
 export { createApplication };

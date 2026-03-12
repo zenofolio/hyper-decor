@@ -1,9 +1,8 @@
 import 'reflect-metadata';
 import { apiSecurity } from '../helpers/security.helper';
-import { SecurityRequirement } from '../types';
 
-export function ApiSecurity(options: SecurityRequirement) {
+export function ApiBearerAuth(name: string = 'bearerAuth') {
   return (target: any, propertyKey?: any, descriptor?: any) => {
-    apiSecurity(target, options, propertyKey);
+    apiSecurity(target, { [name]: [] }, propertyKey);
   };
 }
