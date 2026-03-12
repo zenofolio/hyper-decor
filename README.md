@@ -185,7 +185,70 @@ As a result, we get:
  - [Middleware](./examples/middleware.ts)
  - [File](./examples//upload-file.ts)
 
+## Services & Dependency Injection
+You can use `@HyperService()` with `tsyringe` to inject dependencies into controllers or other services.
 
+```typescript
+import { injectable } from "tsyringe";
+
+@injectable()
+@HyperService()
+class UserService {
+  getUsers() { return ["User1", "User2"]; }
+}
+
+@HyperController("/users")
+class UserController {
+  constructor(private userService: UserService) {}
+
+  @Get("/")
+  getUsers(@Res() res: Response) {
+    res.json(this.userService.getUsers());
+  }
+}
+```
+
+## Agnostic Body Validation & Transformation (`@Transform`)
+You can use `@Transform` to validate and transform incoming requests agnostic of the validation library (like Zod) while seamlessly syncing with OpenAPI definitions.
+
+```typescript
+const ZodTransformer = {
+  transform: ({ data, schema }) => {
+    if (schema && schema._type === "zod") {
+      // Validate and return the parsed data
+      return { ...data, parsed: true };
+    }
+    return data;
+  },
+  getOpenApiSchema: (schema) => {
+    if (schema._type === "zod") {
+       return { type: "object", properties: { /* derived from schema */ } };
+    }
+  }
+};
+
+const app = await createApplication(Application);
+app.useTransform(ZodTransformer); // Register your custom transformer globally
+
+@HyperController("/users")
+class UserController {
+  @Post("/")
+  @Transform({ _type: "zod" /* pass your schema */ })
+  createUser(@Body() data: any, @Res() res: Response) {
+    res.json(data); // `data` is automatically intercepted and transformed!
+  }
+}
+```
+
+## OpenAPI Generation
+Generate a complete OpenAPI specification out-of-the-box leveraging your application tree and decorators footprint.
+
+```typescript
+import { getOpenAPI } from "@zenofolio/hyper-decor/lib/openapi";
+
+const openApiDoc = getOpenAPI(Application);
+console.log(openApiDoc.info.title, openApiDoc.paths);
+```
 
 # All for now
 More documentation will be added here late.
