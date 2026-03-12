@@ -1,4 +1,12 @@
-import type { Server } from "hyper-express";
+import type { Server, Request } from "hyper-express";
+
+declare module "hyper-express" {
+  interface Request {
+    setValue(key: string, value: any): void;
+    getValue<T>(key: string, defaultValue?: T): T;
+  }
+}
+
 import { TransformerInput } from "./__internals/transform/transform.registry";
 
 export type HyperRoleOptions = string | string[];

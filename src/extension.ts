@@ -7,6 +7,8 @@ import {
   hasScopes,
   setRole,
   setScopes,
+  getValue,
+  setValue
 } from "./common/helpers";
 
 /////////////////////////////
@@ -41,6 +43,12 @@ const requestMethods: Record<string, (this: Request, ...args: any[]) => any> = {
   ) {
     setRole(this, role);
     setScopes(this, scopes);
+  },
+  setValue(this: Request, key: string, value: any) {
+    setValue(this, key, value);
+  },
+  getValue<T>(this: Request, key: string, defaultValue?: T): T | undefined {
+    return getValue<T>(this, key, defaultValue);
   },
 };
 
