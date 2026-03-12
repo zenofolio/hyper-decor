@@ -9,7 +9,7 @@ import {
   Transform,
   createApplication,
 } from "../src";
-import { getOpenAPI } from "../src/lib/openapi";
+import { getOpenAPI } from "../dist/lib/openapi/index";
 import { TransformContext } from "../src/__internals/transform/transform.registry";
 
 // 1. Mock Transformer

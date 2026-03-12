@@ -1,6 +1,6 @@
 {
   "name": "@zenofolio/hyper-decor",
-  "version": "1.0.66",
+  "version": "1.0.69",
   "description": "Project core with utilities and features",
   "main": "dist/index.js",
   "author": "zenozaga",
@@ -26,10 +26,9 @@
   },
   "dependencies": {
     "core-decorators": "^0.20.0",
-    "delay": "^7.0.0",
+    "reflect-metadata": "^0.2.2",
     "eventemitter3": "^5.0.4",
     "file-type": "^19.5.0",
-    "reflect-metadata": "^0.2.2",
     "ts-type": "^3.0.8",
     "tsyringe": "^4.8.0"
   },
@@ -58,6 +57,14 @@
     "./extension": {
       "node": "./dist/extension.js",
       "default": "./src/extension.ts"
+    },
+    "./openapi": {
+      "node": "./dist/lib/openapi/index.js",
+      "default": "./src/lib/openapi/index.ts"
+    },
+    "./openapi/*": {
+      "node": "./dist/lib/openapi/*.js",
+      "default": "./src/lib/openapi/*.ts"
     }
   },
   "bin": {

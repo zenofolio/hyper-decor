@@ -4,3 +4,4 @@ export * from "./request-body.helper";
 export * from "./response.helper";
 export * from "./security.helper";
 export * from "./tag.helper";
+export * from "./openapi.helper";
