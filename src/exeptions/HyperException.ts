@@ -4,7 +4,8 @@ export default class HyperException extends Error {
   constructor(
     message: string,
     public code: ExceptionType = "HyperException",
-    public additionalInfo: any = {}
+    public additionalInfo: any = {},
+    public status: number = 500
   ) {
     super(message);
   }

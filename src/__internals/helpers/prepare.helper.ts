@@ -459,8 +459,10 @@ async function prepareRoutes({
       await handleResponse(req, res, result, outputSchema);
     } catch (err) {
       if (!res.completed) {
-        res.status(500).json({
-          error: (err as any).message || "Internal Server Error",
+        const error = err as any;
+        res.status(error.status || 500).json({
+          error: error.message || "Internal Server Error",
+          code: error.code,
         });
       }
     }

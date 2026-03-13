@@ -1,41 +1,26 @@
 import { Request } from "hyper-express/types";
 import { createCustomRequestDecorator } from "./Http";
-import { buffer } from "stream/consumers";
 import HyperFileException from "../exeptions/HyperFileException";
 
 /**
  * File upload restrictions
- *
- * @param allowedMimeTypes Allowed MIME types
- * @param maxFileSize Maximum file size in bytes
- *
  */
-export interface FileUplopadRestrictions {
+export interface FileUploadRestrictions {
   allowedMimeTypes: string[];
   maxFileSize: number;
 }
 
 /**
  * File restrictions resolver
- *
- * @param request Request object
- * @returns File restrictions
- *
  */
 export type FileRestrictions =
-  | FileUplopadRestrictions
+  | FileUploadRestrictions
   | ((
       request: Request
-    ) => FileUplopadRestrictions | Promise<FileUplopadRestrictions>);
+    ) => FileUploadRestrictions | Promise<FileUploadRestrictions>);
 
 /**
  * File decorator options
- *
- * @param fieldName Field name to extract from the request
- * @param restrictions File restrictions
- * @param required If the file is required
- *
- *
  */
 export interface FileOptions {
   fieldName: string | string[];
@@ -44,18 +29,17 @@ export interface FileOptions {
 }
 
 export interface UploadedFile {
+  field: string;
   name: string;
   filename: string;
   mimeType: string;
   size: number;
-  ext: string;
+  extension: string;
   buffer: Buffer;
 }
 
 /**
  * Decorator to extract file from the request
- *
- * @param param0
  */
 export const File = (options: FileOptions | string) => {
   const _options =
@@ -72,7 +56,6 @@ export const File = (options: FileOptions | string) => {
     const passSize = maxFileSize === Infinity;
 
     const contentType = request.headers?.["content-type"];
-    const fileSize = Number(request.headers?.["content-length"]);
     const isMultipart = contentType?.includes("multipart/form-data");
 
     if (!isMultipart) {
@@ -80,26 +63,6 @@ export const File = (options: FileOptions | string) => {
         "Invalid request, expected multipart form data",
         {
           fieldName: _options.fieldName,
-        }
-      );
-    }
-
-    if (isNaN(fileSize) || fileSize <= 0) {
-      throw new HyperFileException(
-        `File ${_options.fieldName} is missing or empty`,
-        {
-          fieldName: _options.fieldName,
-          fileSize,
-        }
-      );
-    }
-
-    if (!passSize && fileSize > maxFileSize) {
-      throw new HyperFileException(
-        `File ${_options.fieldName} is too large. Max size is ${maxFileSize} bytes`,
-        {
-          fieldName: _options.fieldName,
-          maxFileSize,
         }
       );
     }
@@ -117,47 +80,26 @@ export const File = (options: FileOptions | string) => {
 
     return Array.isArray(_options.fieldName)
       ? files
-      : files[_options.fieldName];
+      : files[_options.fieldName as string];
   });
 };
 
-/**
- *
- * Helper function to create a file decorator with options
- *
- * @param options
- * @returns
- */
 File.options = (options: FileOptions, required: boolean = false) => {
   return (fieldName: string | string[]) => {
     return File({ ...options, required, fieldName });
   };
 };
 
-/**
- * Helper function to create a file decorator with restrictions
- *
- * @param restrictions
- * @returns
- */
 File.restrictions = (restrictions: FileRestrictions) => {
   return (fieldName: string | string[], required: boolean = false) => {
     return File({ fieldName, restrictions, required });
   };
 };
 
-/////////////////////////////
-// Types
-/////////////////////////////
-
-/////////////////////////////
-/// Utility
-/////////////////////////////
-
 const resolveRestrictions = async (
   request: Request,
   restrictions?: FileRestrictions
-): Promise<FileUplopadRestrictions> => {
+): Promise<FileUploadRestrictions> => {
   if (typeof restrictions === "function") {
     return await restrictions(request);
   }
@@ -171,11 +113,7 @@ const resolveRestrictions = async (
 };
 
 /**
- * Extract files from a request with validation, transformation, and required files check.
- *
- * @param request
- * @param options Validation and transformation options
- * @returns Transformed or raw file details
+ * Extract files from a request with validation and secure streaming.
  */
 const extractFiles = async <T extends string>(
   request: Request,
@@ -186,74 +124,81 @@ const extractFiles = async <T extends string>(
     requireName?: boolean;
   }
 ): Promise<Record<T, UploadedFile>> => {
-  const contentType = request.headers?.["content-type"];
-
-  if (!contentType?.includes("multipart/form-data")) {
-    throw new Error("Invalid request, expected multipart form data");
-  }
-
   const filesMap = {} as any;
+
+  // Track if we are already over total limit (Content-Length check as first line of defense)
+  const totalLength = Number(request.headers?.["content-length"]);
+  if (options?.maxSize && !isNaN(totalLength) && totalLength > options.maxSize + 1024 * 10) { // Buffer for boundaries
+      // Content-Length is significantly larger than allowed file size
+      // We don't throw yet because multipart might have multiple files or large fields
+  }
 
   await request.multipart(async (field) => {
     if (field.file && field.file.stream) {
-      const bufferFile = await buffer(field.file.stream);
+      const chunks: Buffer[] = [];
+      let totalRead = 0;
 
-      const type = await (
-        await import("file-type")
-      ).fileTypeFromBuffer(bufferFile);
-
-      if (!type) {
-        throw new HyperFileException(`Invalid file type`, {
-          field: field.name,
-        });
+      // Safe stream reading with early exit
+      for await (const chunk of field.file.stream) {
+        totalRead += chunk.length;
+        
+        if (options?.maxSize && totalRead > options.maxSize) {
+           throw new HyperFileException(
+            `File '${field.name}' exceeds the maximum limit of ${options.maxSize} bytes`,
+            { field: field.name, maxSize: options.maxSize }
+          );
+        }
+        chunks.push(chunk);
       }
 
-      const mimeType = type.mime;
-      const extention = type.ext;
+      const bufferFile = Buffer.concat(chunks);
+      const { fileTypeFromBuffer } = await import("file-type");
+      const type = await fileTypeFromBuffer(bufferFile);
 
-      // Validate MIME type early
-      if (options?.mimeTypes && !options.mimeTypes.includes(mimeType)) {
-        throw new HyperFileException(
-          `Invalid file type, only ${options.mimeTypes.join(", ")} is allowed`,
-          {
-            field: field.name,
-            allowedMimeTypes: options.mimeTypes,
-            mimeType,
-          }
+      const mimeType = type?.mime || "unknown/unrecognized";
+      const extension = type?.ext || "bin";
+
+      // Validate MIME type early if unrecognized
+      if (!type && options?.mimeTypes && options.mimeTypes.length > 0) {
+         throw new HyperFileException(
+          `Invalid file type for field '${field.name}'. Could not recognize file signature. Expected one of: ${options.mimeTypes.join(", ")}`,
+          { field: field.name, allowedMimeTypes: options.mimeTypes }
         );
       }
 
-      if (!type) {
-        throw new HyperFileException(`Invalid file type`, {
-          field: field.name,
-        });
-      }
-
-      if (options?.maxSize && bufferFile.byteLength > options.maxSize) {
+      // Validate MIME type if recognized
+      if (options?.mimeTypes && !options.mimeTypes.includes(mimeType)) {
         throw new HyperFileException(
-          `File '${field.name}' size exceeds the maximum limit of ${options.maxSize} bytes`,
+          `Invalid file type for field '${field.name}'. Expected: ${options.mimeTypes.join(", ")}, Received: ${mimeType}`,
           {
             field: field.name,
-            maxSize: options.maxSize,
+            allowedMimeTypes: options.mimeTypes,
+            receivedMimeType: mimeType,
           }
         );
       }
 
       if (options?.requireName && !field.file?.name) {
-        throw new HyperFileException(`File name is required`, {
+        throw new HyperFileException(`File name is required for field '${field.name}'`, {
           field: field.name,
         });
       }
 
-      // Derive file details
-      const name = field.file?.name?.split(".").shift() ?? field.name;
-      const filename = `${name?.replace(extention, "")}.${extention}`;
+      // Secure filename resolution
+      const rawName = field.file?.name || field.name;
+      // Sanitize: remove null bytes, path traversal sequences, and extract base name
+      const sanitizedBase = rawName.replace(/\0/g, "").split(/[\\/]/).pop() || "file";
+      const nameOnly = sanitizedBase.includes(".") 
+        ? sanitizedBase.substring(0, sanitizedBase.lastIndexOf("."))
+        : sanitizedBase;
+      
+      const filename = `${nameOnly}.${extension}`;
 
-      (filesMap as any)[field.name] = {
+      filesMap[field.name] = {
         field: field.name,
-        name: name,
+        name: nameOnly,
         filename: filename,
-        ext: extention,
+        extension: extension,
         size: bufferFile.byteLength,
         mimeType: mimeType,
         buffer: bufferFile,
