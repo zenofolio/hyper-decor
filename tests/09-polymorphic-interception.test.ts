@@ -139,7 +139,7 @@ describe("Polymorphic Interception & OpenAPI", () => {
       });
       const data = await resp.json();
       expect(data.transformed).toBe(true);
-      expect(data.from).toBe("req"); // createParamDecorator uses 'req' for Body
+      expect(data.from).toBe("body"); // Body decorator now uses 'body' as source key
     });
 
     it("should transform output using @Output", async () => {

@@ -354,20 +354,7 @@ async function resolveMethodParams(
   const args = new Array(len);
 
   for (let i = 0; i < len; i++) {
-    const param = params[i];
-    let val = await param.resolver(req, res);
-
-    if (param.schema) {
-      val = await transformRegistry.resolve({
-        data: val,
-        schema: param.schema,
-        options: { isWholeSource: param.isWholeSource },
-        req,
-        res,
-        from: param.key as any,
-      });
-    }
-    args[i] = val;
+    args[i] = await params[i].resolver(req, res);
   }
   return args;
 }
