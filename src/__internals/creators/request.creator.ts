@@ -21,7 +21,9 @@ import { extractArgsNames } from "../utils/function.util";
 export default function createParamDecorator(
   key: keyof Request | "req" | "res",
   decoratorName: string,
-  resolver: ParameterResolver
+  resolver: ParameterResolver,
+  schema?: any,
+  isWholeSource?: boolean
 ): ParameterDecorator {
   const _key = key as string;
   return DecoratorHelper<HyperParameterMetadata>({
@@ -57,6 +59,8 @@ export default function createParamDecorator(
           key: _key,
           method: propertyKey.toString(),
           resolver,
+          schema,
+          isWholeSource,
         });
 
         // sort by index

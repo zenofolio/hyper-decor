@@ -1,5 +1,5 @@
 import { AppTree, getAppTree } from "../../../__internals/helpers/tree.helper";
-import { OpenAPIDocument, PathItem, Operation, Responses } from "../types";
+import { OpenAPIDocument, PathItem, Operation, OpenApiResponses } from "../types";
 
 /**
  * Generates a complete OpenAPI 3.0.0 document from a HyperApp class.

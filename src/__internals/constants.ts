@@ -28,7 +28,7 @@ export const KEY_PARAMS_MIDDLEWARES = "hyper:type:middlewares";
 export const KEY_PARAMS_SCOPE = "hyper:type:scope";
 export const KEY_PARAMS_ROLE = "hyper:type:role";
 export const KEY_PARAMS_PASS = "hyper:type:pass";
-export const KEY_PARAMS_TRANSFORM = "hyper:type:transform";
+export const KEY_OUTPUT_SCHEMA = "hyper:output:schema";
 
 export type KeyParams =
   | typeof KEY_PARAMS_APP
@@ -40,7 +40,7 @@ export type KeyParams =
   | typeof KEY_PARAMS_SCOPE
   | typeof KEY_PARAMS_ROLE
   | typeof KEY_PARAMS_PASS
-  | typeof KEY_PARAMS_TRANSFORM;
+  | typeof KEY_OUTPUT_SCHEMA;
 
 //////////////////////////////
 /// State constants

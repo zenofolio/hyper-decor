@@ -135,6 +135,8 @@ export type HyperParameterMetadata = {
       name: string;
       method: string;
       resolver: ParameterResolver;
+      schema?: any;
+      isWholeSource?: boolean;
     }[]
   >;
 };

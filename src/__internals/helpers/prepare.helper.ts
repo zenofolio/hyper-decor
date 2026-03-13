@@ -35,6 +35,8 @@ import {
   KEY_PARAMS_ROUTE,
   KEY_PARAMS_SCOPE,
   KEY_TYPE_CONTROLLER,
+  KEY_OUTPUT_SCHEMA,
+  DESIGN_RETURNTYPE,
 } from "../constants";
 
 import middlewareTransformer from "../transform/middleware.transform";
@@ -43,8 +45,6 @@ import { RouterList } from "../types";
 import { join } from "../utils/path.util";
 import { prepareImports } from "./imports.helper";
 import { initializeInstance } from "./lifecycle.helper";
-import { METADATA_KEYS, KEY_PARAMS_TRANSFORM } from "../constants";
-import { OnMessageMetadata } from "../../decorators/Messaging";
 import { MessageBus } from "../../common/message-bus";
 import { InternalTransport } from "../../common/transport";
 import { transformRegistry } from "../transform/transform.registry";
@@ -149,7 +149,6 @@ export async function prepareApplication(
 
   let hooks = options.hooks;
   if (typeof hooks === "function" && !(hooks instanceof Router)) {
-
     if (hooks && "constructor" in hooks) {
       if (container.isRegistered(hooks)) {
         container.register(hooks, hooks);
@@ -343,10 +342,76 @@ async function prepareTarget({
 }
 
 /**
+ * Resolves method parameters and applies adaptive transformations.
+ * Optimized: Metadata is resolved once and passed here.
+ */
+async function resolveMethodParams(
+  req: HE_Request,
+  res: HE_Response,
+  params: any[]
+): Promise<any[]> {
+  const len = params.length;
+  const args = new Array(len);
+
+  for (let i = 0; i < len; i++) {
+    const param = params[i];
+    let val = await param.resolver(req, res);
+
+    if (param.schema) {
+      val = await transformRegistry.resolve({
+        data: val,
+        schema: param.schema,
+        options: { isWholeSource: param.isWholeSource },
+        req,
+        res,
+        from: param.key as any,
+      });
+    }
+    args[i] = val;
+  }
+  return args;
+}
+
+/**
+ * Handles output transformation and sends the response.
+ * Optimized: outputSchema is pre-resolved outside the request hotpath.
+ */
+async function handleResponse(
+  req: HE_Request,
+  res: HE_Response,
+  result: any,
+  outputSchema: any
+): Promise<void> {
+  if (result === undefined || res.completed) return;
+
+  if (outputSchema && outputSchema !== Object && outputSchema !== Promise) {
+    const transformed = await transformRegistry.resolve({
+      data: result,
+      schema: outputSchema,
+      options: {},
+      req,
+      res,
+      from: "response" as any,
+    });
+
+    if (transformed !== undefined && !res.completed) {
+      res.json(transformed);
+      return;
+    }
+  }
+
+  if (!res.completed) {
+    if (typeof result === "object" && result !== null) {
+      res.json(result);
+    } else {
+      res.send(result);
+    }
+  }
+}
+
+
+/**
  * Prepare the routes for the target class.
- *
- * @param param0
- * @returns
  */
 async function prepareRoutes({
   target,
@@ -360,43 +425,18 @@ async function prepareRoutes({
   const metadata = getData(handler);
   const params = metadata.params?.params?.[propertyKey] ?? [];
   const $fn = Reflect.get(router, method);
-  const hasParams = params.length > 0;
 
   if (!$fn) return;
 
   const middlewares = [...metadata.middlewares];
 
-  // Agnostic Transform Integration
-  const transform = getDecorData<any>(KEY_PARAMS_TRANSFORM, target.prototype || target, propertyKey);
-  if (transform) {
-    middlewares.push(async (req: HE_Request, res: HE_Response, next: any) => {
-      try {
-        const from = transform.options.from || "body";
-        let data;
-        if (from === "body") {
-          data = (req as any).body !== undefined ? (req as any).body : await req.json();
-        } else {
-          data = (req as any)[from];
-        }
-        
-        // Resolve through the chain of responsibility
-        const transformed = await transformRegistry.resolve({
-          data,
-          schema: transform.schema,
-          options: transform.options,
-          req,
-          res,
-          from
-        });
-        
-        // Update the request object
-        (req as any)[from] = transformed;
-        next();
-      } catch (err) {
-        next(err);
-      }
-    });
-  }
+  const proto = target.prototype || target;
+
+
+  // Pre-resolve Output-Metadata
+  const outputSchema =
+    Reflect.getMetadata(KEY_OUTPUT_SCHEMA, proto, propertyKey) ||
+    Reflect.getMetadata(DESIGN_RETURNTYPE, proto, propertyKey);
 
   roleTransform(metadata.roles, (middleware) => middlewares.push(middleware));
   scopeTransfrom(metadata.scopes, (middleware, scopes) => {
@@ -406,29 +446,30 @@ async function prepareRoutes({
 
   log(
     "routes",
-    `${namespace}/${propertyKey} ${method.toUpperCase()} { ${path} }`
+    `${namespace}/${propertyKey.toString()} ${method.toUpperCase()} { ${path} }`
   );
 
-  if (!hasParams) {
-    if (method === "ws" && options) {
-      router.ws(path, options, handler.bind(instance));
-      return;
-    }
+  const routeHandler = async (req: HE_Request, res: HE_Response) => {
+    try {
+      const args = params.length > 0
+        ? await resolveMethodParams(req, res, params)
+        : [req, res];
 
-    $fn.call(router, path, ...middlewares, handler.bind(instance));
-  } else {
-    $fn.call(
-      router,
-      path,
-      ...middlewares,
-      async (req: HE_Request, res: HE_Response) => {
-        const len = params.length;
-        const args = new Array(len);
-        for (let i = 0; i < len; i++) {
-          args[i] = await params[i].resolver(req, res);
-        }
-        return handler.apply(instance, args);
+      const result = await handler.apply(instance, args);
+      await handleResponse(req, res, result, outputSchema);
+    } catch (err) {
+      if (!res.completed) {
+        res.status(500).json({
+          error: (err as any).message || "Internal Server Error",
+        });
       }
-    );
+    }
+  };
+
+  if (method === "ws" && options) {
+    router.ws(path, options, handler.bind(instance));
+    return;
   }
+
+  $fn.call(router, path, ...middlewares, routeHandler);
 }

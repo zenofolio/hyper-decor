@@ -139,7 +139,7 @@ export const defineDecorData = <T>(
 ) => {
   let value = options;
 
-  if (typeof options === "function") {
+  if (typeof options === "function" && !(options.prototype && options.prototype.constructor === options)) {
     const old = getDecorData<T>(key, target, property);
     value = {
       ...old,

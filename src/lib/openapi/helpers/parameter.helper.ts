@@ -1,9 +1,9 @@
 import 'reflect-metadata';
 import { PARAMETERS } from '../constants';
-import { Parameter } from '../types';
+import { OpenApiParameter } from '../types';
 
-export function apiParameter(target: any, propertyKey: string, options: Parameter) {
-  const existingParameters = Reflect.getMetadata(PARAMETERS, target, propertyKey) || [];
+export function apiParameter(target: any, propertyKey: string, options: OpenApiParameter) {
+  const existingParameters: OpenApiParameter[] = Reflect.getMetadata(PARAMETERS, target, propertyKey) || [];
   existingParameters.push({
     name: options.name,
     in: options.in,

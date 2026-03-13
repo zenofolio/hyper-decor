@@ -47,13 +47,13 @@ export interface Operation {
   description?: string;
   operationId?: string;
   tags?: Tag[];
-  parameters?: Parameter[];
+  parameters?: OpenApiParameter[];
   requestBody?: RequestBody;
-  responses: Responses;
+  responses: OpenApiResponses;
   security?: SecurityRequirement[];
 }
 
-export interface Parameter {
+export interface OpenApiParameter {
   name: string;
   in: "query" | "header" | "path" | "cookie";
   description?: string;
@@ -74,11 +74,11 @@ export interface MediaType {
   schema: Schema;
 }
 
-export interface Responses {
-  [statusCode: string]: Response;
+export interface OpenApiResponses {
+  [statusCode: string]: OpenApiResponse;
 }
 
-export interface Response {
+export interface OpenApiResponse {
   description: string;
   content?: {
     [mediaType: string]: MediaType;
@@ -112,8 +112,8 @@ export interface Tag {
 
 export interface Components {
   schemas?: { [schemaName: string]: Schema };
-  responses?: { [responseName: string]: Response };
-  parameters?: { [parameterName: string]: Parameter };
+  responses?: { [responseName: string]: OpenApiResponse };
+  parameters?: { [parameterName: string]: OpenApiParameter };
   securitySchemes?: { [schemeName: string]: SecurityScheme };
 }
 

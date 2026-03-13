@@ -1,13 +1,13 @@
 import "reflect-metadata";
 import { RESPONSES } from "../constants";
-import { Responses } from "../types";
+import { OpenApiResponses } from "../types";
 
 export function apiResponse(
   target: any,
   propertyKey: string | symbol,
-  options: Responses
+  options: OpenApiResponses
 ) {
-  const existingResponses =
+  const existingResponses: OpenApiResponses =
     Reflect.getMetadata(RESPONSES, target, propertyKey) || {};
 
   for (const key in options) {
