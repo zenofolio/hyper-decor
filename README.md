@@ -1,21 +1,21 @@
-# @zenofolio/hyper-decor (v1.0.71)
+# @zenofolio/hyper-decor (v1.0.72)
 
-A high-performance, ultra-secure, and indestructible decorators library for [HyperExpress](https://github.com/kartikk221/hyper-express).
+Librería de decoradores para [HyperExpress](https://github.com/kartikk221/hyper-express).
 
-Built for speed and security, this library leverages a **Zero-Overhead** architecture using functional composition to ensure your API remains as fast as raw `uWS` while providing a modern development experience.
-
----
-
-## 🚀 Why This Library?
-
-- **Zero-Overhead Architecture**: Parameter resolution, DTO validation, and transformations are pre-composed at startup. No runtime branching in the hotpath.
-- **Ultra-Secure File Handling**: Streaming validation of file sizes and types. Cuts the connection immediately if limits are breached. No memory exhaustion.
-- **Polymorphic Decorators**: Flexible parameter decorators that adapt to your needs without sacrificing performance.
-- **Automated OpenAPI**: Full OpenAPI 3.0 support with automatic DTO expansion and response documentation.
+Este paquete proporciona una capa de abstracción basada en decoradores para facilitar el desarrollo de APIs con HyperExpress, enfocándose en la composición de resolutores para el manejo de parámetros y validación.
 
 ---
 
-## 📦 Installation
+## Características
+
+- **Arquitectura de Composición**: La resolución de parámetros, validación de DTOs y transformaciones se calculan durante la inicialización para minimizar la lógica en el flujo de peticiones.
+- **Manejo de Archivos (`@File`)**: Implementación basada en streams para la validación de tamaño y tipo de archivos durante la subida.
+- **Decoradores Polimórficos**: Soporte para diferentes tipos de argumentos en decoradores de parámetros.
+- **Integración con OpenAPI**: Soporte básico para la generación de esquemas OpenAPI 3.0.
+
+---
+
+## Instalación
 
 ```bash
 npm install @zenofolio/hyper-decor
@@ -23,9 +23,9 @@ npm install @zenofolio/hyper-decor
 
 ---
 
-## 🛠️ Usage
+## Uso
 
-### Define Your App
+### Definición de Aplicación
 ```typescript
 import { HyperApp, createApplication } from "@zenofolio/hyper-decor";
 
@@ -39,32 +39,32 @@ const app = await createApplication(Application);
 await app.listen(3000);
 ```
 
-### Polymorphic Parameter Decorators
-Decorators like `@Body`, `@Query`, `@Param`, and `@Headers` are now smarter and faster.
+### Decoradores de Parámetros
+Los decoradores `@Body`, `@Query`, `@Param` y `@Headers` permiten diferentes formas de uso.
 
 ```typescript
 @HyperController("/users")
 class UserController {
   
-  // 1. Direct DTO Validation (Auto-transformation + OpenAPI)
+  // 1. Validación con DTO
   @Post("/")
   async create(@Body(CreateUserDto) user: CreateUserDto) {
     return user;
   }
 
-  // 2. Key-based extraction with Functional Transformer
+  // 2. Extracción por clave y transformación funcional
   @Get("/:id")
   async findOne(@Param("id", v => parseInt(v)) id: number) {
     return { id };
   }
 
-  // 3. Nested extraction + DTO
+  // 3. Extracción de propiedad anidada con DTO
   @Post("/settings")
   async updateSettings(@Body("settings", SettingsDto) data: SettingsDto) {
     return data;
   }
 
-  // 4. Raw Extractors
+  // 4. Extractores básicos
   @Get("/")
   async list(@Query() allQuery: any, @Req req: any) {
     return allQuery;
@@ -74,51 +74,42 @@ class UserController {
 
 ---
 
-## 🔒 Indestructible File Uploader (`@File`)
+## Subida de Archivos (`@File`)
 
-The `@File` decorator is designed to be ultra-secure. It processes files as **streams**, validating size and type binarily (magic numbers) *before* the file is fully buffered.
-
-- **Streaming Validation**: Connection is terminated immediately if `maxFileSize` is exceeded.
-- **Binary Verification**: Uses binary signatures to verify MIME types, ensuring security even if the extension is falsified.
-- **Automatic Sanitization**: File names are sanitized against path traversal and null bytes.
+El decorador `@File` permite manejar la subida de archivos validando el tamaño y tipo (MIME) mediante streams.
 
 ```typescript
 @Post("/upload")
 async upload(
   @File("avatar", {
-    maxFileSize: 5 * 1024 * 1024, // 5MB
+    maxFileSize: 5 * 1024 * 1024,
     allowedExtensions: ["png", "jpg"],
     allowedMimeTypes: ["image/png", "image/jpeg"]
   }) file: UploadedFile
 ) {
-  // file.buffer contains the safely validated data
   return { filename: file.filename, size: file.size };
 }
 ```
 
 ---
 
-## ⚡ Performance
+## Rendimiento
 
-Benchmarks show that `@zenofolio/hyper-decor` introduces less than **1.8%** overhead compared to raw, manual HyperExpress handlers.
+El sistema está diseñado para introducir la mínima latencia posible sobre HyperExpress.
 
-| Scenario | Raw HyperExpress | @zenofolio/hyper-decor | Overhead |
-| :--- | :--- | :--- | :--- |
-| **Simple GET** | 27,150 req/s | 26,660 req/s | ~1.8% |
-| **Deep Transformation**| 18,120 req/s | 18,335 req/s | **+1.1% Gain** |
-
-> [!TIP]
-> The "Transformed" scenario actually performs better than manual implementations thanks to our optimized functional resolver composition that V8 can inline aggressively.
+| Escenario | Raw HyperExpress | @zenofolio/hyper-decor |
+| :--- | :--- | :--- |
+| **GET Básico** | 27,150 req/s | 26,660 req/s |
+| **Con Transformación**| 18,120 req/s | 18,335 req/s |
 
 ---
 
-## 🔍 OpenAPI & DTOs
+## OpenAPI y DTOs
 
-Pass classes to your decorators, and they will be expanded into the OpenAPI schema automatically.
+Es posible utilizar clases para definir los esquemas de datos que se reflejarán en la documentación OpenAPI generada.
 
 ```typescript
 class CreateUserDto {
-  /** @minimum 18 */
   age: number;
   name: string;
 }
@@ -127,10 +118,8 @@ class CreateUserDto {
 async create(@Body(CreateUserDto) data: CreateUserDto) { ... }
 ```
 
-You can integrate any validation engine (Zod, Class-Validator) by registering a `Transformer` in the `transformRegistry`.
-
 ---
 
-## 🛡️ License
+## Licencia
 
 MIT
