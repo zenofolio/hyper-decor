@@ -6,12 +6,23 @@ import {
   KEY_TYPE_CONTROLLER,
 } from "../constants";
 import { DecoratorHelper } from "../decorator-base";
-import { HyperParameterMetadata, ParameterResolver } from "../../decorators/types";
-import who from "../helpers/who.helper";
+import {
+  HyperParameterMetadata,
+  ParameterResolver,
+} from "../../decorators/types";
 import WrongPlaceException from "../../exeptions/WrongPlaceException";
 import { extractArgsNames } from "../utils/function.util";
 import { $get } from "../utils/object.util";
 import { transformRegistry } from "../transform/transform.registry";
+
+type AnyFn = (...args: any[]) => any;
+type Extractor = (req: Request, res: any) => any | Promise<any>;
+type Selector = (value: any) => any;
+type Transformer = (value: any, req: Request, res: any) => any | Promise<any>;
+
+const identitySelector: Selector = (value) => value;
+const identityTransformer: Transformer = (value) => value;
+
 
 export default function createParamDecorator(
   sourceKey: any,
@@ -26,116 +37,217 @@ export default function createParamDecorator(
     type: KEY_TYPE_CONTROLLER,
     key: KEY_PARAMS_PARAM,
     options: (options, Target, propertyKey, parameterIndex) => {
-      const { isProperty } = who(Target, propertyKey, parameterIndex);
+      const isProperty = typeof parameterIndex === "number";
 
-      if (!isProperty)
+      if (!isProperty) {
         throw new WrongPlaceException(
           decoratorName,
           "parameter",
-          `${Target.constructor.name}.${propertyKey}`,
+          `${Target.constructor.name}.${String(propertyKey)}`,
           Target
         );
+      }
 
       const saved = options ?? { params: {} };
-      const names = extractArgsNames(Target[propertyKey]);
+      const method = Target[propertyKey];
+
+      const names = extractArgsNames(method);
       const types = Reflect.getMetadata(DESIGN_PARAMTYPES, Target, propertyKey);
+
       const name = names?.[parameterIndex];
       const type = types?.[parameterIndex];
 
-      // --- ULTRA OPTIMIZER: Resolver Composition ---
-      let finalResolver: ParameterResolver;
-      let finalSchema: any = undefined;
-      let _isWholeSource = isWholeSource;
-
-      // 1. Identify Key, Schema/Function
       let key: string | undefined = undefined;
       let inputSchemaOrFn: any = undefined;
+      let wholeSource = isWholeSource;
 
       if (typeof keyOrSchema === "string") {
         key = keyOrSchema;
         inputSchemaOrFn = schemaOrTransform;
-      } else if (keyOrSchema) {
+      } else if (keyOrSchema !== undefined) {
         inputSchemaOrFn = keyOrSchema;
-        _isWholeSource = true;
+        wholeSource = true;
       }
 
-      // Metadata for OpenAPI
-      finalSchema = inputSchemaOrFn;
+      const hasKey = key !== undefined && key !== "";
+      const hasTransform = inputSchemaOrFn !== undefined;
 
-      // 2. Base Extractor (Hotpath optimized)
-      const isBody = _sourceKey === "body";
-      
-      const extractor = isBody 
-        ? async (req: Request) => {
-            if ((req as any).body !== undefined) return (req as any).body;
-            const body = await req.json();
-            (req as any).body = body;
-            return body;
-          }
-        : (req: Request, res: any) => {
-            if (_sourceKey === "req") return req;
-            if (_sourceKey === "res") return res;
-            return (req as any)[_sourceKey];
-          };
+      const extractor = createExtractor(_sourceKey);
+      const selector = createSelector(key);
+      const transformer = createTransformer(
+        inputSchemaOrFn,
+        _sourceKey,
+        wholeSource
+      );
 
-      // 3. Compose Final Resolver
-      finalResolver = async (req, res) => {
-          let val = isBody ? await extractor(req, res) : (extractor as any)(req, res);
-          
-          if (key) {
-              val = $get(val, key as any, val);
-          }
-
-          if (typeof inputSchemaOrFn === "function") {
-              if (inputSchemaOrFn.prototype === undefined) {
-                  return inputSchemaOrFn(val);
-              } else {
-                  return await transformRegistry.resolve({
-                      data: val,
-                      schema: inputSchemaOrFn,
-                      options: { isWholeSource: _isWholeSource },
-                      req,
-                      res,
-                      from: _sourceKey as any,
-                  });
-              }
-          }
-
-          if (typeof inputSchemaOrFn === "string") {
-              return await transformRegistry.resolve({
-                  data: val,
-                  schema: inputSchemaOrFn,
-                  options: { isWholeSource: _isWholeSource },
-                  req,
-                  res,
-                  from: _sourceKey as any,
-              });
-          }
-
-          return val;
-      };
+      const resolver = composeResolver(
+        extractor,
+        selector,
+        transformer,
+        hasKey,
+        hasTransform
+      );
 
       if (name && saved) {
-        if (!saved.params[propertyKey]) {
-          saved.params[propertyKey] = [];
+        let methodParams = saved.params[propertyKey];
+
+        if (!methodParams) {
+          methodParams = saved.params[propertyKey] = [];
         }
 
-        saved.params[propertyKey].push({
+        methodParams.push({
           name,
           type,
           index: parameterIndex,
           key: _sourceKey,
           method: propertyKey.toString(),
-          resolver: finalResolver,
-          schema: finalSchema, // Kept for metadata/OpenAPI
-          isWholeSource: _isWholeSource,
+          resolver,
+          schema: inputSchemaOrFn,
+          isWholeSource: wholeSource,
         });
 
-        saved.params[propertyKey].sort((a, b) => a.index - b.index);
-        Reflect.defineMetadata(KEY_PARAMS_PARAM, saved, Target[propertyKey]);
+        if (methodParams.length > 1) {
+          methodParams.sort((a, b) => a.index - b.index);
+        }
+
+        Reflect.defineMetadata(KEY_PARAMS_PARAM, saved, method);
       }
 
       return saved;
     },
   }) as any;
+}
+
+
+
+//////////////////////////
+/// Functions
+/////////////////////////
+
+function createBodyExtractor(): Extractor {
+  return async (req: Request) => {
+    const request = req as any;
+    const cachedBody = request.body;
+
+    if (cachedBody !== undefined) {
+      return cachedBody;
+    }
+
+    const body = await req.json();
+    request.body = body;
+    return body;
+  };
+}
+
+function createReqExtractor(): Extractor {
+  return async (req) => req;
+}
+
+function createResExtractor(): Extractor {
+  return async (_req, res) => res;
+}
+
+function createGenericExtractor(sourceKey: string): Extractor {
+  return async (req) => (req as any)[sourceKey];
+}
+
+function createExtractor(sourceKey: string): Extractor {
+  switch (sourceKey) {
+    case "body":
+      return createBodyExtractor();
+    case "req":
+      return createReqExtractor();
+    case "res":
+      return createResExtractor();
+    default:
+      return createGenericExtractor(sourceKey);
+  }
+}
+
+function createSelector(key?: string): Selector {
+  if (key === undefined || key === "") {
+    return identitySelector;
+  }
+
+  return (value: any) => $get(value, key as any, value);
+}
+
+function createDirectTransformer(fn: AnyFn): Transformer {
+  return (value) => fn(value);
+}
+
+function createRegistryTransformer(
+  schema: any,
+  sourceKey: string,
+  isWholeSource: boolean
+): Transformer {
+  const options = { isWholeSource };
+  const from = sourceKey as any;
+
+  return (value, req, res) =>
+    transformRegistry.resolve({
+      data: value,
+      schema,
+      options,
+      req,
+      res,
+      from,
+    });
+}
+
+function createTransformer(
+  inputSchemaOrFn: any,
+  sourceKey: string,
+  isWholeSource: boolean
+): Transformer {
+  if (inputSchemaOrFn === undefined) {
+    return identityTransformer;
+  }
+
+  if (
+    typeof inputSchemaOrFn === "function" &&
+    inputSchemaOrFn.prototype === undefined
+  ) {
+    return createDirectTransformer(inputSchemaOrFn);
+  }
+
+  if (
+    typeof inputSchemaOrFn === "function" ||
+    typeof inputSchemaOrFn === "string"
+  ) {
+    return createRegistryTransformer(inputSchemaOrFn, sourceKey, isWholeSource);
+  }
+
+  return identityTransformer;
+}
+
+function composeResolver(
+  extractor: Extractor,
+  selector: Selector,
+  transformer: Transformer,
+  hasKey: boolean,
+  hasTransform: boolean
+): ParameterResolver {
+  if (!hasKey && !hasTransform) {
+    return extractor as ParameterResolver;
+  }
+
+  if (hasKey && !hasTransform) {
+    return async (req, res) => {
+      const value = await extractor(req, res);
+      return selector(value);
+    };
+  }
+
+  if (!hasKey && hasTransform) {
+    return async (req, res) => {
+      const value = await extractor(req, res);
+      return transformer(value, req, res);
+    };
+  }
+
+  return async (req, res) => {
+    const value = await extractor(req, res);
+    return transformer(selector(value), req, res);
+  };
 }
