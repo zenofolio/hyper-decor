@@ -1,89 +1,60 @@
-import { container } from "tsyringe";
-import { IHyperHooks, ImportType } from "../../decorators/types";
-import { initializeInstance, isInitialized } from "./lifecycle.helper";
-import { getDecorData } from "../decorator-base";
-import { OnMessageMetadata } from "../../decorators/Messaging";
-import { METADATA_KEYS } from "../constants";
+import { container, InjectionToken } from "tsyringe";
+import { ImportType, IHyperHooks, OnInit, ImportObject, Constructor } from "../../lib/server/decorators/types";
 import { MessageBus } from "../../common/message-bus";
 
 /**
- * Prepare imports for the target class.
+ * Prepare the imports for the target class.
  *
- * @param target
+ * @param _target
  * @param imports
  */
-export async function prepareImports(_target: any, imports: ImportType[], hooks?: IHyperHooks, context?: any) {
+export async function prepareImports(_target: Constructor | object, imports: ImportType[], hooks?: IHyperHooks, context?: unknown) {
   const bus = container.resolve(MessageBus);
 
   await Promise.all(
     imports.map(async (item) => {
-      let token: any;
+      let instance: Record<string, any> | undefined;
+      let token: InjectionToken;
 
-      if (typeof item === "function" || typeof item === "string" || typeof item === "symbol") {
-        token = item;
-      } else if (item && typeof item === "object" && "token" in item) {
-        token = item.token;
-        if (item.useClass) {
-          container.register(token, { useClass: item.useClass }, item.options);
-        } else if ("useValue" in item) {
-          container.registerInstance(token, item.useValue);
-          return;
-        } else if (item.useFactory) {
-          container.register(token, { useFactory: item.useFactory } as any, item.options);
-          return;
-        } else if (item.useToken) {
-          container.register(token, { useToken: item.useToken } as any, item.options);
-          return;
+      if (typeof item === "function") {
+        if (!container.isRegistered(item)) {
+          container.register(item, item as Constructor);
         }
+        token = item;
+        instance = container.resolve(item) as Record<string, any>;
+      } else if (typeof item === "object" && item !== null) {
+        const importObj = item as ImportObject;
+        token = importObj.token;
+
+        if (importObj.useClass) {
+          container.register(token, { useClass: importObj.useClass });
+        } else if (importObj.useValue) {
+          container.register(token, { useValue: importObj.useValue } as any);
+        } else if (importObj.useFactory) {
+          container.register(token, { useFactory: importObj.useFactory } as any);
+        } else if (importObj.useToken) {
+          container.register(token, { useToken: importObj.useToken } as any);
+        }
+
+        instance = container.resolve(token) as Record<string, any>;
+      } else {
+        // Primitive or already registered token
+        token = item as InjectionToken;
+        instance = container.resolve(token) as Record<string, any>;
       }
 
-      if (!token) return;
-
-      try {
-        const instance = container.resolve(token as any) as any;
-        if (!instance) return;
-
-        // Skip if already initialized to avoid double work/double subscription
-        const alreadyDone = isInitialized(instance);
-
-        if (!alreadyDone) {
-          if (hooks?.onBeforeInit) {
-            await hooks.onBeforeInit(instance, token, context);
-          }
+      if (instance) {
+        if (hooks?.onBeforeInit) {
+          await hooks.onBeforeInit(instance, token, context);
         }
 
-        await initializeInstance(instance);
-
-        if (!alreadyDone) {
-          if (hooks?.onAfterInit) {
-            await hooks.onAfterInit(instance, token, context);
-          }
-
-          // Handle singleton registration if it's a constructor and not registered
-          if (typeof token === "function" && !container.isRegistered(token)) {
-            const isSingleton = typeof instance.isSingleton === "function" ? instance.isSingleton() : true;
-            if (isSingleton) {
-              container.registerInstance(token, instance);
-            }
-          }
-
-          // Discovery: Messaging (only on first init)
-          const messaging = getDecorData<OnMessageMetadata[]>(
-            METADATA_KEYS.ON_MESSAGE,
-            typeof token === "function" ? token : instance.constructor
-          );
-
-          if (messaging?.length) {
-            messaging.forEach((msg) => {
-              bus.listen(msg.topic, instance[msg.propertyKey].bind(instance));
-            });
-          }
+        if (typeof (instance as Partial<OnInit>).onInit === "function") {
+          await (instance as OnInit).onInit();
         }
-      } catch (e: any) {
-        // Skip dependencies that cannot be resolved automatically
-        // Log a warning to prevent silent failures in production
-        const name = typeof token === "function" ? token.name : String(token);
-        console.warn(`[HyperDecor] Warn: Could not resolve dependency for token "${name}". It might be missing injectable() or not exported correctly.`);
+
+        if (hooks?.onAfterInit) {
+          await hooks.onAfterInit(instance, token, context);
+        }
       }
     })
   );

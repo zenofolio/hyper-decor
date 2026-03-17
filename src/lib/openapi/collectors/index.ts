@@ -1,4 +1,3 @@
-export * from "./class.collector";
-export * from "./method.collector";
-export * from "./param.collector";
-export * from "./schema.collector";
+export * from './class.collector';
+export * from './method.collector';
+export * from './schema.collector';

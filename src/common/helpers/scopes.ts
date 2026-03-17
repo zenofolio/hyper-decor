@@ -52,7 +52,7 @@ export const getScopes = (request: Request): string[] | undefined => {
  */
 export const hasScopes = (request: Request, scopes: HyperScopeOptions): boolean => {
   const requestScopes = new Set(getScopes(request) || []);
-  
+
   if (requestScopes.has("*")) return true;
 
   return $array(scopes).every(scope => requestScopes.has(scope));

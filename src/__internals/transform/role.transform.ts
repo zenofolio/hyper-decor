@@ -1,8 +1,8 @@
 import { MiddlewareHandler } from "hyper-express";
-import { RoleType } from "../../decorators";
-import { NotRoleException } from "../../exeptions";
-import { getRoles } from "../../common/helpers";
-import { FULL_ACCESS } from "../constants";
+import { RoleType } from "../../lib/server/decorators";
+import { NotRoleException } from "../../lib/server/exeptions";
+import { getRoles } from "../../common/helpers/role";
+import { FULL_ACCESS } from "../../constants";
 
 export default function roleTransform(
   list: RoleType[],

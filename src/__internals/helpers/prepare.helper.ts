@@ -1,62 +1,55 @@
+import "reflect-metadata";
 import {
-  MiddlewareHandler,
   Request as HE_Request,
   Response as HE_Response,
   Router,
   Server,
 } from "hyper-express";
+import { container } from "tsyringe";
 
-import { ScopeStore } from "../../stores";
+import { ScopeStore } from "../stores";
+import { Metadata } from "../stores/meta.store";
 import roleTransform from "../transform/role.transform";
 import scopeTransfrom from "../transform/scope.transfrom";
-import { $each } from "../utils/object.util";
-import { getDecorData } from "../decorator-base";
+import middlewareTransformer from "../transform/middleware.transform";
+import { prepareImports } from "./imports.helper";
+import { join } from "../utils/path.util";
+import { transformRegistry } from "../transform/transform.registry";
+
+import { MessageBus } from "../../common/message-bus";
+import { InternalTransport } from "../../common/transport";
+
+import {
+  HyperMetadataStore,
+  HyperMethodMetadata,
+  HyperPrefixRoot,
+  HyperCommonMetadata,
+} from "../types";
+
 import { IHyperAppTarget } from "../../type";
 import {
+  Constructor,
   HyperAppMetadata,
   HyperControllerMetadata,
-  IHyperHooks,
   HyperModuleMetadata,
   HyperParameterMetadata,
+  IHyperHooks,
   ImportType,
   LogSpaces,
-  OnInit,
   RoleType,
   RouteMetadata,
   ScopeType,
-} from "../../decorators/types";
-import {
-  KEY_PARAMS_APP,
-  KEY_PARAMS_MIDDLEWARES,
-  KEY_PARAMS_MODULE,
-  KEY_PARAMS_PARAM,
-  KEY_PARAMS_PASS,
-  KEY_PARAMS_ROLE,
-  KEY_PARAMS_ROUTE,
-  KEY_PARAMS_SCOPE,
-  KEY_TYPE_CONTROLLER,
-  KEY_OUTPUT_SCHEMA,
-  DESIGN_RETURNTYPE,
-} from "../constants";
-
-import middlewareTransformer from "../transform/middleware.transform";
-import { container } from "tsyringe";
-import { RouterList } from "../types";
-import { join } from "../utils/path.util";
-import { prepareImports } from "./imports.helper";
-import { initializeInstance } from "./lifecycle.helper";
-import { MessageBus } from "../../common/message-bus";
-import { InternalTransport } from "../../common/transport";
-import { transformRegistry } from "../transform/transform.registry";
+} from "../../lib/server/decorators/types";
 
 interface PrepareTargetParams {
-  target: any;
+  target: Constructor;
   router?: Router;
   prefix?: string;
   namespace?: string;
-  instance?: any;
+  instance: Record<string, any>;
   imports?: ImportType[];
   log: (space: keyof LogSpaces, message: string) => void;
+  hooks?: IHyperHooks;
 }
 
 interface PrepareTargetReturn {
@@ -65,10 +58,10 @@ interface PrepareTargetReturn {
 }
 
 interface PrepareRouteParams {
-  target: any;
+  target: Constructor;
   router: Router;
   route: RouteMetadata;
-  instance: any;
+  instance: Record<string, any>;
   namespace: string;
   prefix: string;
   scopes?: ScopeType[];
@@ -76,298 +69,256 @@ interface PrepareRouteParams {
   log: (space: keyof LogSpaces, message: string) => void;
 }
 
-const if_router = (current?: any | null): Router => {
-  if (!current || !(current?.prototype instanceof Router)) return new Router();
-  return new current();
-};
+interface TargetData {
+  app: IHyperAppTarget;
+  module: HyperModuleMetadata;
+  controller: HyperControllerMetadata;
+  middlewares: any[];
+  scopes: ScopeType[];
+  roles: RoleType[];
+  methods: Record<string, HyperMethodMetadata>;
+  pass: boolean;
+}
 
-/**
- * Extract the data from the target class.
- *
- * @param target
- * @returns
- */
-function getData(target: any) {
-  const app = getDecorData<IHyperAppTarget>(KEY_PARAMS_APP, target);
-  const module = getDecorData<HyperModuleMetadata>(KEY_PARAMS_MODULE, target);
-  const controller = getDecorData<HyperControllerMetadata>(
-    KEY_TYPE_CONTROLLER,
-    target
-  );
+/* -------------------------------------------------------------------------- */
+/*                                  Helpers                                   */
+/* -------------------------------------------------------------------------- */
 
-  const middlewares = middlewareTransformer(
-    getDecorData<MiddlewareHandler[]>(KEY_PARAMS_MIDDLEWARES, target) ?? []
-  );
-  const scopes = getDecorData<ScopeType[]>(KEY_PARAMS_SCOPE, target) ?? [];
-  const roles = getDecorData<RoleType[]>(KEY_PARAMS_ROLE, target) ?? [];
-  const routes = getDecorData<RouterList>(KEY_PARAMS_ROUTE, target) ?? {
-    routes: [],
+function createRouter(target?: Constructor | null): Router {
+  if (!target || !(target.prototype instanceof Router)) {
+    return new Router();
+  }
+
+  return new (target as Constructor<Router>)();
+}
+
+function getRootMetadata(target: Constructor | Function): HyperMetadataStore {
+  return Metadata.get<HyperMetadataStore>(target);
+}
+
+function getServerMetadata(target: Constructor | Function): HyperPrefixRoot {
+  const root = getRootMetadata(target);
+
+  return root.server || {
+    common: { type: "controller" } as HyperCommonMetadata,
+    methods: {},
   };
+}
 
-  const params =
-    getDecorData<HyperParameterMetadata>(KEY_PARAMS_PARAM, target) ?? {};
-  const pass = getDecorData<HyperParameterMetadata>(KEY_PARAMS_PASS, target);
+function getCommonMetadata(target: Constructor | Function): HyperCommonMetadata {
+  const server = getServerMetadata(target);
+  return server.common || ({ type: "controller" } as HyperCommonMetadata);
+}
+
+function getMethodMetadataMap(
+  target: Constructor | Function
+): Record<string, HyperMethodMetadata> {
+  const server = getServerMetadata(target);
+  return (server.methods || {}) as Record<string, HyperMethodMetadata>;
+}
+
+function getData(target: Constructor | Function): TargetData {
+  const common = getCommonMetadata(target);
 
   return {
-    app,
-    module,
-    controller,
-    middlewares,
-    scopes,
-    roles,
-    routes,
-    params,
-    pass,
+    app: common as unknown as IHyperAppTarget,
+    module: common as unknown as HyperModuleMetadata,
+    controller: common as unknown as HyperControllerMetadata,
+    middlewares: middlewareTransformer(common.middlewares ?? []),
+    scopes: common.scopes ?? [],
+    roles: common.roles ?? [],
+    methods: getMethodMetadataMap(target),
+    pass: !!common.pass,
   };
 }
 
-/**
- * Prepare the application with the given options.
- *
- * @param options
- * @param Target
- * @param app
- * @param log
- */
-export async function prepareApplication(
-  options: HyperAppMetadata,
-  Target: any,
-  app: Server,
+function logTargetType(
+  data: TargetData,
+  namespace: string,
+  prefix: string | undefined,
   log: (space: keyof LogSpaces, message: string) => void
-) {
-  const data = getData(Target);
-  const prefix = options.prefix ?? "/";
-  const imports = options.imports ?? [];
-
-  // Register transports if provided, otherwise fallback to internal
-  const bus = container.resolve(MessageBus);
-  if (options?.transports?.length) {
-    options.transports.forEach((t) => bus.registerTransport(t));
-  } else {
-    bus.registerTransport(new InternalTransport());
-  }
-
-  let hooks = options.hooks;
-  if (typeof hooks === "function" && !(hooks instanceof Router)) {
-    if (hooks && "constructor" in hooks) {
-      if (container.isRegistered(hooks)) {
-        container.register(hooks, hooks);
-      }
-    }
-
-    hooks = container.resolve(hooks as any);
-  }
-
-  const context = { target: Target, metadata: options, type: "app" };
-  await prepareImports(Target, imports, hooks as IHyperHooks, context);
-
-  if (data.middlewares.length) {
-    app.use(...data.middlewares);
-    log(
-      "middleware",
-      `${Target.name} with middlewares: ${data.middlewares
-        .map((e) => e.name)
-        .join(", ")}`
-    );
-  }
-
-  scopeTransfrom(data.scopes, (middleware, scopes) => {
-    ScopeStore.addAll(scopes);
-    app.use(middleware);
-    log("middleware", `${Target.name} with scopes: ${data.scopes.join(", ")}`);
-  });
-
-  roleTransform(data.roles, (middleware) => {
-    app.use(middleware);
-    log("middleware", `${Target.name} with roles: ${data.roles.join(", ")}`);
-  });
-
-  const routers = (await Promise.all(
-    options.modules.map(async (module) => {
-      const data = getData(module);
-      const path = data.module?.path;
-      const imports = data.module?.imports ?? [];
-      return prepareTarget({
-        target: module,
-        router: if_router(module),
-        namespace: `${Target.name}/${module.name}`,
-        instance: app,
-        prefix: path,
-        imports: imports,
-        log,
-        hooks: hooks as IHyperHooks,
-      });
-    })
-  )).filter((r) => r.router);
-
-  routers.forEach(({ router, path }) => {
-    app.use(join(prefix, path || "/"), router!);
-  });
-}
-
-/**
- * Prepare the target class
- * HyperModule or HyperController can be used as target.
- *
- * @param param0
- * @returns
- */
-async function prepareTarget({
-  target,
-  router,
-  prefix,
-  namespace = "",
-  instance,
-  imports = [],
-  log,
-  hooks,
-}: PrepareTargetParams & { hooks?: IHyperHooks }): Promise<PrepareTargetReturn> {
-  const data = getData(target);
-
+): void {
   if (data.module) {
     log("modules", `${namespace} { ${prefix || "/"} }`);
-  } else if (data.controller) {
+    return;
+  }
+
+  if (data.controller) {
     log("controllers", `${namespace} { ${prefix || "/"} }`);
   }
-
-  const modules = data.module?.modules ?? [];
-  const controllers = data.module?.controllers ?? [];
-  const routes = data.routes ?? { routes: [] };
-
-  const middlewares = data.middlewares ?? [];
-  const scopes = data.scopes ?? [];
-  const roles = data.roles ?? [];
-
-  const needsRouter =
-    controllers.length > 0 ||
-    routes.routes.size > 0 ||
-    middlewares.length > 0 ||
-    scopes.length > 0 ||
-    roles.length > 0;
-
-  const _router = router ?? (needsRouter ? if_router(target) : undefined);
-
-  ////////////////////////////////
-  /// Prepare Imports
-  ////////////////////////////////
-
-  const context = { target: target, metadata: data, type: "target" };
-  await prepareImports(target, imports, hooks, context);
-
-  ////////////////////////////////
-  /// Attach Middlewares & Security
-  ////////////////////////////////
-
-  if (_router) {
-    _router.use(...middlewares);
-
-    scopeTransfrom(scopes, (middleware, scopes) => {
-      ScopeStore.addAll(scopes);
-      _router.use(middleware);
-    });
-
-    roleTransform(roles, (middleware) => _router.use(middleware));
-  }
-
-  ////////////////////////////////
-  /// Prepare Modules
-  ////////////////////////////////
-
-  await $each(modules, async (module) => {
-    const moduleData = getData(module);
-    if (!moduleData.module) return;
-
-    const res = await prepareTarget({
-      target: module,
-      imports: moduleData.module.imports,
-      namespace: `${namespace}/${module.name}`,
-      prefix: moduleData.module.path,
-      instance: container.resolve(module),
-      log,
-      hooks,
-    });
-
-    if (res.router && _router) {
-      _router.use(res.path || "/", res.router);
-    }
-  });
-
-  // ////////////////////////////////
-  // /// Prepare Controllers
-  // ////////////////////////////////
-
-  await $each(controllers, async (controller) => {
-    const data = getData(controller);
-    const controllerData = data.controller;
-    if (!controllerData) return;
-
-    const res = await prepareTarget({
-      target: controller,
-      namespace: `${namespace}/${controller.name}`,
-      prefix: controllerData.path,
-      imports: controllerData.imports,
-      instance: container.resolve(controller),
-      log,
-      hooks,
-    });
-
-    if (res.router && _router) {
-      _router.use(res.path || "/", res.router);
-    }
-  });
-
-  ////////////////////////////////
-  /// Prepare Routes
-  ////////////////////////////////
-
-  if (_router) {
-    await $each(Array.from(routes.routes), async (route) => {
-      if (typeof route !== "object") return;
-      await prepareRoutes({
-        target: target,
-        router: _router,
-        route,
-        namespace,
-        instance,
-        prefix: prefix || "/",
-        log,
-      });
-    });
-  }
-
-  return {
-    router: _router,
-    path: prefix,
-  };
 }
 
-/**
- * Resolves method parameters and applies adaptive transformations.
- * Optimized: Metadata is resolved once and passed here.
- */
+function shouldCreateRouter(data: TargetData): boolean {
+  const modules = data.module?.modules ?? [];
+  const controllers = data.module?.controllers ?? [];
+  const methods = Object.keys(data.methods).length > 0;
+
+  return (
+    modules.length > 0 ||
+    controllers.length > 0 ||
+    methods ||
+    data.middlewares.length > 0 ||
+    data.scopes.length > 0 ||
+    data.roles.length > 0
+  );
+}
+
+function resolveTargetRouter(
+  router: Router | undefined,
+  target: Constructor,
+  data: TargetData
+): Router | undefined {
+  if (router) return router;
+  if (!shouldCreateRouter(data)) return undefined;
+  return createRouter(target);
+}
+
+async function resolveHooks(hooks?: HyperAppMetadata["hooks"]): Promise<IHyperHooks | undefined> {
+  if (!hooks) return undefined;
+
+  if (typeof hooks === "function" && !(hooks instanceof Router)) {
+    if ("constructor" in hooks && container.isRegistered(hooks)) {
+      container.register(hooks, hooks);
+    }
+
+    return container.resolve(hooks as any);
+  }
+
+  return hooks as IHyperHooks;
+}
+
+function configureMessageBus(options: HyperAppMetadata): void {
+  const bus = container.resolve(MessageBus);
+
+  if (options?.transports?.length) {
+    options.transports.forEach((transport) => bus.registerTransport(transport));
+    return;
+  }
+
+  bus.registerTransport(container.resolve(InternalTransport));
+}
+
+async function prepareTargetImports(
+  target: Constructor,
+  imports: ImportType[],
+  hooks: IHyperHooks | undefined,
+  metadata: unknown,
+  type: "app" | "target"
+): Promise<void> {
+  await prepareImports(target, imports, hooks, {
+    target,
+    metadata,
+    type,
+  });
+}
+
+function applyScopes(
+  targetName: string,
+  scopes: ScopeType[],
+  use: (...args: any[]) => any,
+  log?: (space: keyof LogSpaces, message: string) => void
+): void {
+  scopeTransfrom(scopes, (middleware, resolvedScopes) => {
+    ScopeStore.addAll(resolvedScopes);
+    use(middleware);
+
+    if (log && scopes.length > 0) {
+      log("middleware", `${targetName} with scopes: ${scopes.join(", ")}`);
+    }
+  });
+}
+
+function applyRoles(
+  targetName: string,
+  roles: RoleType[],
+  use: (...args: any[]) => any,
+  log?: (space: keyof LogSpaces, message: string) => void
+): void {
+  roleTransform(roles, (middleware) => {
+    use(middleware);
+
+    if (log && roles.length > 0) {
+      log("middleware", `${targetName} with roles: ${roles.join(", ")}`);
+    }
+  });
+}
+
+function applyMiddlewares(
+  targetName: string,
+  middlewares: any[],
+  use: (...args: any[]) => any,
+  log?: (space: keyof LogSpaces, message: string) => void
+): void {
+  if (!middlewares.length) return;
+
+  use(...middlewares);
+
+  if (log) {
+    log(
+      "middleware",
+      `${targetName} with middlewares: ${middlewares.map((e) => e.name).join(", ")}`
+    );
+  }
+}
+
+function applyCommonPipeline(
+  targetName: string,
+  carrier: { use: (...args: any[]) => any },
+  data: Pick<TargetData, "middlewares" | "scopes" | "roles">,
+  log?: (space: keyof LogSpaces, message: string) => void
+): void {
+  applyMiddlewares(targetName, data.middlewares, (...args) => carrier.use(...args), log);
+  applyScopes(targetName, data.scopes, (...args) => carrier.use(...args), log);
+  applyRoles(targetName, data.roles, (...args) => carrier.use(...args), log);
+}
+
+/* -------------------------------------------------------------------------- */
+/*                           Route/Handler construction                        */
+/* -------------------------------------------------------------------------- */
+
 async function resolveMethodParams(
   req: HE_Request,
   res: HE_Response,
-  params: any[]
-): Promise<any[]> {
+  params: HyperParameterMetadata["params"]
+): Promise<unknown[]> {
   const len = params.length;
   const args = new Array(len);
 
   for (let i = 0; i < len; i++) {
     args[i] = await params[i].resolver(req, res);
   }
+
   return args;
 }
 
-/**
- * Handles output transformation and sends the response.
- * Optimized: outputSchema is pre-resolved outside the request hotpath.
- */
+function getRouteMethodMeta(target: Constructor, propertyKey: string): HyperMethodMetadata {
+  const methods = getMethodMetadataMap(target);
+  return methods[propertyKey] || {};
+}
+
+function buildRouteMiddlewares(methodMeta: HyperMethodMetadata): any[] {
+  const middlewares = middlewareTransformer(methodMeta.middlewares ?? []);
+  const scopes = methodMeta.scopes ?? [];
+  const roles = methodMeta.roles ?? [];
+
+  roleTransform(roles, (middleware) => middlewares.push(middleware));
+  scopeTransfrom(scopes, (middleware, resolvedScopes) => {
+    middlewares.push(middleware);
+    ScopeStore.addAll(resolvedScopes);
+  });
+
+  return middlewares;
+}
+
+function getOutputSchema(methodMeta: HyperMethodMetadata): unknown {
+  return methodMeta.output || methodMeta.reflection?.output;
+}
+
 async function handleResponse(
   req: HE_Request,
   res: HE_Response,
-  result: any,
-  outputSchema: any
+  result: unknown,
+  outputSchema: unknown
 ): Promise<void> {
   if (result === undefined || res.completed) return;
 
@@ -382,83 +333,342 @@ async function handleResponse(
     });
 
     if (transformed !== undefined && !res.completed) {
-      res.json(transformed);
+      res.json(transformed as Record<string, unknown>);
       return;
     }
   }
 
-  if (!res.completed) {
-    if (typeof result === "object" && result !== null) {
-      res.json(result);
-    } else {
-      res.send(result);
-    }
+  if (res.completed) return;
+
+  if (typeof result === "object" && result !== null) {
+    res.json(result as Record<string, unknown>);
+    return;
   }
+
+  res.send(result as string);
 }
 
+function buildErrorResponse(res: HE_Response, err: unknown): void {
+  if (res.completed) return;
 
-/**
- * Prepare the routes for the target class.
- */
-async function prepareRoutes({
+  const error = err as Error & { status?: number; code?: string };
+  console.error(`[ERROR] ${error.message}`, error);
+
+  res.status(error.status || 500).json({
+    error: error.message || "Internal Server Error",
+    code: error.code,
+  });
+}
+
+function buildRouteHandler(
+  instance: Record<string, any>,
+  propertyKey: string,
+  params: HyperParameterMetadata["params"],
+  outputSchema: unknown
+) {
+  const handler = instance[propertyKey];
+
+  return async (req: HE_Request, res: HE_Response) => {
+    try {
+      const args =
+        params.length > 0 ? await resolveMethodParams(req, res, params) : [req, res];
+
+      const result = await handler.apply(instance, args);
+      await handleResponse(req, res, result, outputSchema);
+    } catch (err) {
+      buildErrorResponse(res, err);
+    }
+  };
+}
+
+function registerWebSocketRoute(
+  router: Router,
+  path: string,
+  options: unknown,
+  handler: Function,
+  instance: Record<string, any>
+): void {
+  router.ws(path, options as any, handler.bind(instance));
+}
+
+function registerHttpRoute(
+  router: Router,
+  method: string,
+  path: string,
+  middlewares: any[],
+  routeHandler: Function
+): void {
+  const fn = Reflect.get(router, method) as Function | undefined;
+  if (!fn) return;
+
+  fn.call(router, path, ...middlewares, routeHandler);
+}
+
+async function prepareRoute({
   target,
   router,
   route,
   instance,
   namespace,
   log,
-}: PrepareRouteParams) {
-  const { method, path, handler, propertyKey, options } = route;
-  const metadata = getData(handler);
-  const params = metadata.params?.params?.[propertyKey] ?? [];
-  const $fn = Reflect.get(router, method);
+}: PrepareRouteParams): Promise<void> {
+  const { method, path, propertyKey, options } = route;
+  const handler = instance[propertyKey];
 
-  if (!$fn) return;
+  const methodMeta = getRouteMethodMeta(target, propertyKey);
+  const params = methodMeta.params?.params || [];
+  const outputSchema = getOutputSchema(methodMeta);
+  const middlewares = buildRouteMiddlewares(methodMeta);
 
-  const middlewares = [...metadata.middlewares];
-
-  const proto = target.prototype || target;
-
-
-  // Pre-resolve Output-Metadata
-  const outputSchema =
-    Reflect.getMetadata(KEY_OUTPUT_SCHEMA, proto, propertyKey) ||
-    Reflect.getMetadata(DESIGN_RETURNTYPE, proto, propertyKey);
-
-  roleTransform(metadata.roles, (middleware) => middlewares.push(middleware));
-  scopeTransfrom(metadata.scopes, (middleware, scopes) => {
-    middlewares.push(middleware);
-    ScopeStore.addAll(scopes);
-  });
-
-  log(
-    "routes",
-    `${namespace}/${propertyKey.toString()} ${method.toUpperCase()} { ${path} }`
-  );
-
-  const routeHandler = async (req: HE_Request, res: HE_Response) => {
-    try {
-      const args = params.length > 0
-        ? await resolveMethodParams(req, res, params)
-        : [req, res];
-
-      const result = await handler.apply(instance, args);
-      await handleResponse(req, res, result, outputSchema);
-    } catch (err) {
-      if (!res.completed) {
-        const error = err as any;
-        res.status(error.status || 500).json({
-          error: error.message || "Internal Server Error",
-          code: error.code,
-        });
-      }
-    }
-  };
+  log("routes", `${namespace}/${propertyKey.toString()} ${method.toUpperCase()} { ${path} }`);
 
   if (method === "ws" && options) {
-    router.ws(path, options, handler.bind(instance));
+    registerWebSocketRoute(router, path, options, handler, instance);
     return;
   }
 
-  $fn.call(router, path, ...middlewares, routeHandler);
+  const routeHandler = buildRouteHandler(instance, propertyKey, params, outputSchema);
+  registerHttpRoute(router, method, path, middlewares, routeHandler);
+}
+
+async function prepareTargetRoutes(
+  target: Constructor,
+  router: Router | undefined,
+  instance: Record<string, any>,
+  namespace: string,
+  prefix: string,
+  log: (space: keyof LogSpaces, message: string) => void
+): Promise<void> {
+  if (!router) return;
+
+  const methods = getMethodMetadataMap(target);
+  const propertyKeys = Object.keys(methods);
+
+  for (const propertyKey of propertyKeys) {
+    const methodMeta = methods[propertyKey];
+    const route = methodMeta.route;
+
+    if (!route) continue;
+
+    await prepareRoute({
+      target,
+      router,
+      route,
+      namespace,
+      instance,
+      prefix,
+      log,
+    });
+  }
+}
+
+/* -------------------------------------------------------------------------- */
+/*                          Child target construction                          */
+/* -------------------------------------------------------------------------- */
+
+async function prepareChildModule(
+  parentRouter: Router | undefined,
+  moduleTarget: Constructor,
+  namespace: string,
+  log: (space: keyof LogSpaces, message: string) => void,
+  hooks?: IHyperHooks
+): Promise<void> {
+  if (!parentRouter) return;
+
+  const moduleData = getData(moduleTarget);
+  if (!moduleData.module) return;
+
+  const result = await prepareTarget({
+    target: moduleTarget,
+    imports: moduleData.module.imports,
+    namespace: `${namespace}/${moduleTarget.name}`,
+    prefix: moduleData.module.path,
+    instance: container.resolve(moduleTarget),
+    log,
+    hooks,
+  });
+
+  if (result.router) {
+    parentRouter.use(result.path || "/", result.router);
+  }
+}
+
+async function prepareChildController(
+  parentRouter: Router | undefined,
+  controllerTarget: Constructor,
+  namespace: string,
+  log: (space: keyof LogSpaces, message: string) => void,
+  hooks?: IHyperHooks
+): Promise<void> {
+  if (!parentRouter) return;
+
+  const controllerData = getData(controllerTarget).controller;
+  if (!controllerData) return;
+
+  const result = await prepareTarget({
+    target: controllerTarget,
+    namespace: `${namespace}/${controllerTarget.name}`,
+    prefix: controllerData.path,
+    imports: controllerData.imports,
+    instance: container.resolve(controllerTarget),
+    log,
+    hooks,
+  });
+
+  if (result.router) {
+    parentRouter.use(result.path || "/", result.router);
+  }
+}
+
+async function prepareChildModules(
+  modules: Constructor[],
+  router: Router | undefined,
+  namespace: string,
+  log: (space: keyof LogSpaces, message: string) => void,
+  hooks?: IHyperHooks
+): Promise<void> {
+  for (const module of modules) {
+    await prepareChildModule(router, module, namespace, log, hooks);
+  }
+}
+
+async function prepareChildControllers(
+  controllers: Constructor[],
+  router: Router | undefined,
+  namespace: string,
+  log: (space: keyof LogSpaces, message: string) => void,
+  hooks?: IHyperHooks
+): Promise<void> {
+  for (const controller of controllers) {
+    await prepareChildController(router, controller, namespace, log, hooks);
+  }
+}
+
+/* -------------------------------------------------------------------------- */
+/*                              Target preparation                             */
+/* -------------------------------------------------------------------------- */
+
+async function prepareTarget({
+  target,
+  router,
+  prefix,
+  namespace = "",
+  instance,
+  imports = [],
+  log,
+  hooks,
+}: PrepareTargetParams): Promise<PrepareTargetReturn> {
+  const data = getData(target);
+  const resolvedRouter = resolveTargetRouter(router, target, data);
+
+  logTargetType(data, namespace, prefix, log);
+
+  await prepareTargetImports(target, imports, hooks, data, "target");
+
+  if (resolvedRouter) {
+    applyCommonPipeline(target.name, resolvedRouter, data);
+  }
+
+  const modules = data.module?.modules ?? [];
+  const controllers = data.module?.controllers ?? [];
+
+  await prepareChildModules(modules, resolvedRouter, namespace, log, hooks);
+  await prepareChildControllers(controllers, resolvedRouter, namespace, log, hooks);
+
+  await prepareTargetRoutes(
+    target,
+    resolvedRouter,
+    instance,
+    namespace,
+    prefix || "/",
+    log
+  );
+
+  return {
+    router: resolvedRouter,
+    path: prefix,
+  };
+}
+
+/* -------------------------------------------------------------------------- */
+/*                           Application construction                          */
+/* -------------------------------------------------------------------------- */
+
+function createApplicationServer(Target: Constructor): Server {
+  const app = new Server();
+
+  if (typeof app.use !== "function") {
+    throw new Error(
+      `[HyperApp] target instance of ${Target.name} MUST provide .use() method.`
+    );
+  }
+
+  return app;
+}
+
+async function prepareApplicationModules(
+  app: Server,
+  Target: Constructor,
+  options: HyperAppMetadata,
+  log: (space: keyof LogSpaces, message: string) => void,
+  hooks?: IHyperHooks
+): Promise<PrepareTargetReturn[]> {
+  const routers: PrepareTargetReturn[] = [];
+
+  for (const module of options.modules) {
+    const moduleData = getData(module);
+    const path = moduleData.module?.path;
+
+    const result = await prepareTarget({
+      target: module,
+      router: createRouter(module),
+      namespace: `${Target.name}/${module.name}`,
+      instance: app as any,
+      prefix: path,
+      imports: moduleData.module?.imports || [],
+      log,
+      hooks,
+    });
+
+    routers.push(result);
+  }
+
+  return routers;
+}
+
+function mountApplicationRouters(
+  app: Server,
+  prefix: string,
+  routers: PrepareTargetReturn[]
+): void {
+  routers
+    .filter((entry) => entry.router)
+    .forEach(({ router, path }) => {
+      app.use(join(prefix, path || "/"), router!);
+    });
+}
+
+export async function prepareApplication(
+  options: HyperAppMetadata,
+  Target: Constructor,
+  log: (space: keyof LogSpaces, message: string) => void
+) {
+  const app = createApplicationServer(Target);
+  const data = getData(Target);
+
+  const prefix = options.prefix ?? "/";
+  const imports = options.imports ?? [];
+
+  configureMessageBus(options);
+
+  const hooks = await resolveHooks(options.hooks);
+
+  await prepareTargetImports(Target, imports, hooks, options, "app");
+
+  applyCommonPipeline(Target.name, app, data, log);
+
+  const routers = await prepareApplicationModules(app, Target, options, log, hooks);
+  mountApplicationRouters(app, prefix, routers);
+
+  return app;
 }

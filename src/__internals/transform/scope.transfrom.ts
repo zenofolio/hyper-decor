@@ -1,8 +1,8 @@
 import { MiddlewareHandler } from "hyper-express/types";
-import { ScopeMap, ScopeType } from "../../decorators";
-import { NotScopeException } from "../../exeptions";
+import { ScopeMap, ScopeType } from "../../lib/server/decorators";
+import { NotScopeException } from "../../lib/server/exeptions";
 import { getScopes } from "../../common/helpers";
-import { FULL_ACCESS } from "../constants";
+import { FULL_ACCESS } from "../../constants";
 
 type Callback = (
   middleware: MiddlewareHandler,

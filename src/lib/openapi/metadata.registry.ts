@@ -1,4 +1,4 @@
-import { AppTree } from "../../__internals/helpers/tree.helper";
+import { AppTree } from "../tree/tree";
 
 export type CollectorType = "class" | "method" | "param";
 export type CollectorFn = (target: any, propertyKey?: string) => any;

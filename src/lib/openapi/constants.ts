@@ -1,4 +1,4 @@
-// constants.ts
+export const KEY_OPENAPI = "hyper:openapi";
 
 // OpenAPI Version
 export const OPENAPI_VERSION = "3.0.0";

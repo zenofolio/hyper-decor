@@ -13,8 +13,8 @@ import { openApiRegistry } from "../src/lib/openapi/metadata.registry";
 // 1. Example of a Custom Collector (Extensibility)
 // Imagine we have a custom decorator @Audit() and we want it in the Swagger tree
 const KEY_AUDIT = "custom:audit";
-const Audit = (message: string): MethodDecorator => 
-  (target, key) => Reflect.defineMetadata(KEY_AUDIT, message, target, key);
+const Audit = (message: string): MethodDecorator =>
+  (target: any, key: any, descriptor: any) => Reflect.defineMetadata(KEY_AUDIT, message, target, key);
 
 openApiRegistry.registerCollector("method", (target, propertyKey) => {
   const auditMessage = Reflect.getMetadata(KEY_AUDIT, target, propertyKey!);
@@ -25,6 +25,7 @@ openApiRegistry.registerCollector("method", (target, propertyKey) => {
 @HyperController({ path: "/orders" })
 class OrderController {
   @Get("/:id")
+  // @ts-ignore
   @Audit("Accessed order details")
   @ApiMethod({ summary: "Get order details" })
   @ApiResponse({ "200": { description: "Order found" } })
@@ -52,24 +53,24 @@ describe("Extension & Path-Centric Example", () => {
     // console.log(JSON.stringify(tree, null, 2));
 
     // DEMO: How an adapter would use this
-    
+
     // A. Accessing global info
     expect(tree.app.name).toBe("Super Store API");
 
     // B. Accessing by Module Name (Record)
     expect(tree.modules["ShopModule"]).toBeDefined();
-    
+
     // C. Accessing by Flattened Path (Easy for Swagger)
     const orderPath = "/shop/orders/:id";
     const routeNodes = tree.paths[orderPath];
-    
+
     expect(routeNodes).toBeDefined();
     expect(routeNodes.length).toBe(1);
-    
+
     const node = routeNodes[0];
     expect(node.method).toBe("get");
     expect(node.openapi.summary).toBe("Get order details");
-    
+
     // D. Verification of Custom Extension (Extensibility)
     expect(node.openapi.xAudit).toBe("Accessed order details");
 

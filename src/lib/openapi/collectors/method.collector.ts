@@ -1,73 +1,125 @@
-import { METHOD_SUMMARY, RESPONSES, PARAMETERS, REQUEST_BODY_CONTENT, REQUEST_BODY_DESCRIPTION, METHOD_TAGS, METHOD_OPERATION_ID, SECURITY } from '../constants';
-import { Operation, OpenApiParameter, OpenApiResponse, OpenApiResponses, RequestBody, SecurityRequirement, OpenAPIDocument, PathItem } from '../types';
-import { collectParameterMetadata } from './param.collector';
-import { KEY_PARAMS_PARAM, KEY_OUTPUT_SCHEMA, DESIGN_RETURNTYPE } from '../../../__internals/constants';
-import { openApiRegistry } from '../metadata.registry';
-import { getDecorData } from '../../../__internals/decorator-base';
+import "reflect-metadata";
+import { SwaggerMeta } from '../metadata';
+import { 
+  Operation, 
+  OpenApiParameter, 
+  OpenApiResponses, 
+  RequestBody, 
+  MediaType,
+  Schema 
+} from '../types';
+import { Constructor } from '../../server/decorators/types';
+import { HyperMeta } from '../../server/decorators/metadata';
 import { transformRegistry } from '../../../__internals/transform/transform.registry';
-import { HyperParameterMetadata } from '../../../decorators/types';
+import { KEY_OUTPUT_SCHEMA } from '../../../__internals/constants';
+import { collectSchema } from './schema.collector';
 
-export function collectMethodMetadata(target: any, methodName: string): Operation {
-  const methodMetadata: any = {};
+import { HyperMethodMetadata } from '../../../__internals/types';
 
-  // Extraemos la metadata del método
-  const summary = Reflect.getMetadata(METHOD_SUMMARY, target, methodName);
-  const operationId = Reflect.getMetadata(METHOD_OPERATION_ID, target, methodName);
-  const tags = Reflect.getMetadata(METHOD_TAGS, target, methodName);
-  const security: SecurityRequirement[] = Reflect.getMetadata(SECURITY, target, methodName);
+/**
+ * 🛠️ Consolidates framework metadata and OpenAPI decorators into a single Operation object.
+ */
+export function collectMethodMetadata(target: Constructor, propertyKey?: string): Operation | undefined {
+    if (!propertyKey) return undefined;
 
-  // Extraemos las respuestas del método
-  const responses: OpenApiResponses = Reflect.getMetadata(RESPONSES, target, methodName) || {};
+    // 1. Get user-defined OpenAPI metadata from decorators
+    const baseOperation = SwaggerMeta.get(target, propertyKey) as Operation;
+    
+    // 2. Get framework metadata (params, route, etc.)
+    const hyperMeta = HyperMeta.get(target, propertyKey) as HyperMethodMetadata;
+    
+    const operation: Operation = {
+        ...baseOperation,
+        parameters: [...(baseOperation.parameters || [])],
+        responses: { ...(baseOperation.responses || {}) }
+    };
 
-  // Extraemos los parámetros del método
-  const parameters: OpenApiParameter[] = collectParameterMetadata(target, methodName);
+    // 3. Bridge Parameters (@Query, @Param, @Headers)
+    if (hyperMeta.params?.params) {
+        hyperMeta.params.params.forEach((param) => {
+            const inType = mapParamIn(param.decorator);
+            if (!inType) return; // Skip 'body' or unknown
 
-  // Extraemos la información del cuerpo de la solicitud
-  const requestBody: RequestBody = {
-    description: Reflect.getMetadata(REQUEST_BODY_DESCRIPTION, target, methodName),
-    content: Reflect.getMetadata(REQUEST_BODY_CONTENT, target, methodName),
-  };
+            // Use the key as the name if it's specified, otherwise fall back to name/decorator
+            const name = (typeof param.key === 'string' && !['query', 'params', 'headers', 'body'].includes(param.key.toLowerCase())) 
+                ? param.key 
+                : (param.name || param.decorator || 'param');
 
-  // Bridge @Body to OpenAPI
-  const hyperParams: HyperParameterMetadata = Reflect.getMetadata(KEY_PARAMS_PARAM, target[methodName]);
-  
-  if (hyperParams && hyperParams.params[methodName]) {
-    const bodyParam = hyperParams.params[methodName].find(p => ['body', 'BODY', 'req'].includes(p.key));
-    if (bodyParam) {
-      const targetSchema = bodyParam.schema;
-      if (targetSchema) {
-        const bodySchema = transformRegistry.getOpenApiSchema(targetSchema);
-        if (bodySchema) {
-          requestBody.content = requestBody.content || {};
-          requestBody.content['application/json'] = {
-            schema: bodySchema
-          };
+            const schema = param.schema 
+                ? (transformRegistry.getOpenApiSchema(param.schema) || collectSchema(param.schema))
+                : { type: 'string' };
+
+            // If it's an object, we might want to explode it (if it's Query/Headers)
+            if (schema.type === 'object' && schema.properties && (inType === 'query' || inType === 'header')) {
+                Object.entries(schema.properties).forEach(([propName, prop]) => {
+                    operation.parameters!.push({
+                        name: propName,
+                        in: inType,
+                        required: true,
+                        schema: prop as Schema
+                    });
+                });
+            } else {
+                operation.parameters!.push({
+                    name,
+                    in: inType,
+                    required: inType === 'path' ? true : undefined,
+                    schema
+                });
+            }
+        });
+    }
+
+    // 4. Bridge Request Body (@Body)
+    const bodyParam = hyperMeta.params?.params?.find((p) => p.decorator === 'Body');
+    if (bodyParam && !operation.requestBody) {
+        let schema = bodyParam.schema 
+            ? (transformRegistry.getOpenApiSchema(bodyParam.schema) || collectSchema(bodyParam.schema))
+            : { type: 'object' };
+
+        // If a specific key was requested, wrap the schema in an object
+        if (typeof bodyParam.key === 'string' && bodyParam.key !== 'body') {
+            schema = {
+                type: 'object',
+                properties: {
+                    [bodyParam.key]: schema
+                },
+                required: [bodyParam.key]
+            };
         }
-      }
+
+        operation.requestBody = {
+            content: {
+                "application/json": { schema }
+            }
+        };
     }
-  }
 
-  // Bridging @Output / return type to OpenAPI
-  const outputSchema = Reflect.getMetadata(KEY_OUTPUT_SCHEMA, target, methodName)
-    || Reflect.getMetadata(DESIGN_RETURNTYPE, target, methodName);
+    // 5. Bridge Responses (@Output)
+    const outputSchema = baseOperation.responses?.["200"]?.content?.["application/json"]?.schema
+        || (hyperMeta as Record<string, unknown>)[KEY_OUTPUT_SCHEMA]
+        || hyperMeta.output;
 
-  if (outputSchema && outputSchema !== Object && outputSchema !== Promise) {
-    const schema = transformRegistry.getOpenApiSchema(outputSchema);
-    if (schema) {
-      responses['200'] = responses['200'] || { description: 'Success' };
-      responses['200'].content = responses['200'].content || {};
-      responses['200'].content['application/json'] = { schema };
+    if (outputSchema && !operation.responses["200"]) {
+        const schema = transformRegistry.getOpenApiSchema(outputSchema) || collectSchema(outputSchema);
+        operation.responses["200"] = {
+            description: "OK",
+            content: {
+                "application/json": { schema }
+            }
+        };
+    } else if (Object.keys(operation.responses).length === 0) {
+        operation.responses["200"] = { description: "OK" };
     }
-  }
 
-  // Asignamos las propiedades al objeto de metadata solo si existen
-  if (summary) methodMetadata.summary = summary;
-  if (operationId) methodMetadata.operationId = operationId;
-  if (tags) methodMetadata.tags = tags;
-  if (security) methodMetadata.security = security;
-  if (responses && Object.keys(responses).length > 0) methodMetadata.responses = responses;
-  if (parameters.length > 0) methodMetadata.parameters = parameters;
-  if (requestBody.content) methodMetadata.requestBody = requestBody;
+    return operation;
+}
 
-  return methodMetadata;
+function mapParamIn(decorator: string): "query" | "header" | "path" | undefined {
+    switch (decorator.toLowerCase()) {
+        case 'query': return 'query';
+        case 'param': return 'path';
+        case 'headers': return 'header';
+        default: return undefined;
+    }
 }

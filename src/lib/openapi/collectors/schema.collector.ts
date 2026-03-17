@@ -1,40 +1,28 @@
-import "reflect-metadata";
-import { Schema } from "../types";
+import { Schema } from '../types';
 
 /**
- * Collector responsible for transforming DTO classes into OpenAPI Schema objects.
- * Uses design:type and property inspection.
+ * 🔍 Extracts a basic OpenAPI schema from a DTO class.
+ * This is a fallback when no specific transformer (Zod, etc.) is registered.
  */
 export function collectSchema(Target: any): Schema {
-  if (!Target || typeof Target !== "function") {
-    return { type: "object" };
-  }
+    if (typeof Target !== 'function') {
+        return { type: 'string' };
+    }
 
-  const schema: Schema = {
-    type: "object",
-    properties: {},
-  };
+    const schema: Schema = {
+        type: 'object',
+        properties: {},
+    };
 
-  // Note: Standard reflect-metadata has limitations for property enumeration.
-  // In a full implementation, we might use a custom decorator or 
-  // class-transformer/class-validator if available.
-  // For now, we provide the structure to be extended.
-  
-  return schema;
-}
+    // Note: Standard TS reflection doesn't expose fields without decorators.
+    // However, we can try to instantiate or use metadata if available.
+    // For now, we provide a placeholder that can be extended.
+    
+    // If it's a primitive constructor
+    if (Target === String) return { type: 'string' };
+    if (Target === Number) return { type: 'number' };
+    if (Target === Boolean) return { type: 'boolean' };
+    if (Target === Date) return { type: 'string', format: 'date-time' };
 
-/**
- * Infer OpenAPI type from JavaScript constructor names.
- */
-export function inferType(constructorName: string): string {
-  const map: Record<string, string> = {
-    String: "string",
-    Number: "number",
-    Boolean: "boolean",
-    Array: "array",
-    Object: "object",
-    Date: "string", // Dates are strings in OpenAPI
-  };
-
-  return map[constructorName] || "string";
+    return schema;
 }

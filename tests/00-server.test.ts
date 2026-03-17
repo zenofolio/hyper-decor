@@ -1,17 +1,16 @@
+import "reflect-metadata";
 import { describe, it } from "vitest";
 import { createApplication, Get, HyperApp, HyperController, HyperModule, Res, Response } from "../src";
 import { request } from "./helpers/request";
 
 
-@HyperController()
+@HyperController({
+  path: "/unit",
+})
 class AppController {
-
-  @Get("unit")
-  async services(
-    @Res() res: Response
-  ) {
-    console.log("hello")
-    res.send("hello")
+  @Get("/")
+  async services(@Res() res: Response) {
+    res.json({ message: "hello" });
   }
 }
 
@@ -42,7 +41,14 @@ describe("HyperApp", () => {
   it("app: should create an application with modules and controllers", async () => {
     const app = await createApplication(Application);
     await app.listen(PORT);
-    await request("/test/unit", undefined, PORT);
-    await app.close();
-  }, 10000);
+
+    console.log(app, "app")
+
+    try {
+      const body = await request("/test/unit", undefined, PORT);
+      console.log(body, "es] Application/AppModule/AppController/service")
+    } finally {
+      await app.close();
+    }
+  });
 });
