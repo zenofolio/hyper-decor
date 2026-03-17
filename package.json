@@ -5,6 +5,14 @@
   "main": "dist/index.js",
   "author": "zenozaga",
   "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/zenofolio/hyper-decor.git"
+  },
+  "bugs": {
+    "url": "https://github.com/zenofolio/hyper-decor/issues"
+  },
+  "homepage": "https://github.com/zenofolio/hyper-decor#readme",
   "scripts": {
     "test": "vitest run",
     "test:watch": "vitest",
