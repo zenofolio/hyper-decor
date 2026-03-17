@@ -177,32 +177,82 @@ function applyCommonPipeline(
 /*                           Route/Handler construction                        */
 /* -------------------------------------------------------------------------- */
 
-function buildParameterResolver(meta: HyperParameterMetadata["params"][0]): ParameterResolver {
-  if (meta.resolver) return meta.resolver;
+function buildArgumentsResolver(
+  paramsMeta: HyperParameterMetadata["params"]
+): (req: HE_Request, res: HE_Response) => Promise<any[]> {
+  const sorted = [...paramsMeta].sort((a, b) => a.index - b.index);
+  const hasBody = sorted.some((p) => p.source === "body");
+
+  // Pre-calculate per-parameter resolution logic
+  const resolvers = sorted.map((meta) => {
+    if (meta.resolver) return meta.resolver;
+
+    const sourceKey = meta.source;
+    if (!sourceKey) return () => null;
+
+    const isWhole = meta.isWholeSource;
+    const picker = meta.picker;
+    const schema = meta.schema;
+
+    return async (req: HE_Request, res: HE_Response, body: any) => {
+      if (sourceKey === "req") return req;
+      if (sourceKey === "res") return res;
+
+      let source = sourceKey === "body" ? body : (req as any)[sourceKey];
+      if (!source) return null;
+
+      const rawValue = isWhole ? source : picker ? source[picker] : source;
+      if (!schema) return rawValue;
+
+      return await transformRegistry.resolve({
+        data: rawValue,
+        schema,
+        options: {},
+        req,
+        res,
+        from: sourceKey as any,
+      });
+    };
+  });
 
   return async (req: HE_Request, res: HE_Response) => {
-    const sourceKey = meta.source;
-    if (!sourceKey) return null;
-    if (sourceKey === "req") return req;
-    if (sourceKey === "res") return res;
+    if (resolvers.length === 0) return [req, res];
 
-    let source = (req as any)[sourceKey];
-    if (sourceKey === "body" && typeof req.json === "function") {
-      source = await req.json();
+    const body = hasBody && typeof req.json === "function" ? await req.json() : undefined;
+    return await Promise.all(resolvers.map((r) => r(req, res, body)));
+  };
+}
+
+function buildResponseSender(
+  outputSchema: any
+): (res: HE_Response, result: any, req: HE_Request) => Promise<void> {
+  const needsTransform =
+    outputSchema && outputSchema !== Object && outputSchema !== Promise;
+
+  return async (res: HE_Response, result: any, req: HE_Request) => {
+    if (result === undefined || res.completed) return;
+
+    if (needsTransform) {
+      const transformed = await transformRegistry.resolve({
+        data: result,
+        schema: outputSchema,
+        options: {},
+        req,
+        res,
+        from: "response" as any,
+      });
+      if (transformed !== undefined && !res.completed) {
+        res.json(transformed as Record<string, unknown>);
+        return;
+      }
     }
-    if (!source) return null;
 
-    const rawValue = meta.isWholeSource ? source : (meta.picker ? source[meta.picker] : source);
-    if (!meta.schema) return rawValue;
-
-    return await transformRegistry.resolve({
-      data: rawValue,
-      schema: meta.schema,
-      options: {},
-      req,
-      res,
-      from: sourceKey as any,
-    });
+    if (res.completed) return;
+    if (typeof result === "object" && result !== null) {
+      res.json(result as Record<string, unknown>);
+    } else {
+      res.send(result as string);
+    }
   };
 }
 
@@ -215,13 +265,7 @@ async function prepareRoute(
   log: (space: keyof LogSpaces, message: string) => void
 ): Promise<void> {
   const { method, path, propertyKey, options } = route;
-  const methodMeta = (getMethodMetadataMap(target)[propertyKey] || {});
-  
-  const params = (methodMeta.params?.params || [])
-    .sort((a, b) => a.index - b.index)
-    .map(p => ({ ...p, resolver: buildParameterResolver(p) }));
-
-  const outputSchema = methodMeta.output || methodMeta.reflection?.output;
+  const methodMeta = getMethodMetadataMap(target)[propertyKey] || {};
   
   const middlewares = middlewareTransformer(methodMeta.middlewares ?? []);
   roleTransform(methodMeta.roles ?? [], m => middlewares.push(m));
@@ -237,34 +281,17 @@ async function prepareRoute(
     return;
   }
 
+  const argumentResolver = buildArgumentsResolver(methodMeta.params?.params || []);
+  const responseSender = buildResponseSender(
+    methodMeta.output || methodMeta.reflection?.output
+  );
+  const handlerMethod = (instance as any)[propertyKey];
+
   const handler = async (req: HE_Request, res: HE_Response) => {
     try {
-      const args = params.length > 0 
-        ? await Promise.all(params.map(p => p.resolver!(req, res)))
-        : [req, res];
-      
-      const result = await (instance as any)[propertyKey].apply(instance, args);
-      
-      if (result === undefined || res.completed) return;
-      
-      if (outputSchema && outputSchema !== Object && outputSchema !== Promise) {
-        const transformed = await transformRegistry.resolve({
-          data: result,
-          schema: outputSchema,
-          options: {}, req, res, from: "response" as any,
-        });
-        if (transformed !== undefined && !res.completed) {
-          res.json(transformed as Record<string, unknown>);
-          return;
-        }
-      }
-
-      if (res.completed) return;
-      if (typeof result === "object" && result !== null) {
-        res.json(result as Record<string, unknown>);
-      } else {
-        res.send(result as string);
-      }
+      const args = await argumentResolver(req, res);
+      const result = await handlerMethod.apply(instance, args);
+      await responseSender(res, result, req);
     } catch (err) {
       if (res.completed) return;
       const error = err as any;
