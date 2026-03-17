@@ -11,8 +11,6 @@ export default defineConfig({
         singleThread: true,
       },
     },
-    benchmark: {
-      include: ['tests/bench/**/*.{bench}.ts'],
     }
   },
   plugins: [

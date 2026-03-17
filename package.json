@@ -1,6 +1,6 @@
 {
   "name": "@zenofolio/hyper-decor",
-  "version": "1.0.72",
+  "version": "1.0.73",
   "description": "Project core with utilities and features",
   "main": "dist/index.js",
   "author": "zenozaga",
@@ -9,7 +9,6 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "test:ui": "vitest --ui",
-    "test:server": "vitest tests/server.bench.ts",
     "build": "tsc",
     "publish": "npm run build && npm publish --access public"
   },

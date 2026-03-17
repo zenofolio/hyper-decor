@@ -1,4 +1,4 @@
-# @zenofolio/hyper-decor (v1.0.72)
+# @zenofolio/hyper-decor (v1.0.73)
 
 Librería de decoradores para [HyperExpress](https://github.com/kartikk221/hyper-express).
 
@@ -90,17 +90,6 @@ async upload(
   return { filename: file.filename, size: file.size };
 }
 ```
-
----
-
-## Rendimiento
-
-El sistema está diseñado para introducir la mínima latencia posible sobre HyperExpress.
-
-| Escenario | Raw HyperExpress | @zenofolio/hyper-decor |
-| :--- | :--- | :--- |
-| **GET Básico** | 27,150 req/s | 26,660 req/s |
-| **Con Transformación**| 18,120 req/s | 18,335 req/s |
 
 ---
 
