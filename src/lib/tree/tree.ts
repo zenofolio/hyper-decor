@@ -129,7 +129,7 @@ function getControllerNode(Target: Constructor, parentPath: string = "", globalP
 
     // Execute custom collectors
     openApiRegistry.getCollectors("method").forEach((collector) => {
-      const extra = collector(Target, propertyKey);
+      const extra = collector(Target.prototype, propertyKey);
       if (extra) Object.assign(methodOpenApi, extra);
     });
 

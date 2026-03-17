@@ -36,6 +36,7 @@ import {
   IHyperHooks,
   ImportType,
   LogSpaces,
+  ParameterResolver,
   RoleType,
   RouteMetadata,
   ScopeType,
@@ -191,7 +192,10 @@ function configureMessageBus(options: HyperAppMetadata): void {
   const bus = container.resolve(MessageBus);
 
   if (options?.transports?.length) {
-    options.transports.forEach((transport) => bus.registerTransport(transport));
+    options.transports.forEach((transport) => {
+      const resolved = typeof transport === "function" ? container.resolve(transport as any) : transport;
+      bus.registerTransport(resolved as any);
+    });
     return;
   }
 
@@ -276,6 +280,42 @@ function applyCommonPipeline(
 /*                           Route/Handler construction                        */
 /* -------------------------------------------------------------------------- */
 
+function buildParameterResolver(
+  meta: HyperParameterMetadata["params"][0]
+): ParameterResolver {
+  if (meta.resolver) return meta.resolver;
+
+  return async (req: HE_Request, res: HE_Response) => {
+    const sourceKey = meta.source;
+    if (!sourceKey) return null;
+
+    if (sourceKey === "req") return req;
+    if (sourceKey === "res") return res;
+
+    let source = (req as any)[sourceKey];
+
+    // Special handling for body in hyper-express
+    if (sourceKey === "body" && typeof req.json === "function") {
+      source = await req.json();
+    }
+
+    if (!source) return null;
+
+    const rawValue = meta.isWholeSource ? source : (meta.picker ? source[meta.picker] : source);
+    
+    if (!meta.schema) return rawValue;
+
+    return await transformRegistry.resolve({
+      data: rawValue,
+      schema: meta.schema,
+      options: {},
+      req,
+      res,
+      from: sourceKey as any,
+    });
+  };
+}
+
 async function resolveMethodParams(
   req: HE_Request,
   res: HE_Response,
@@ -285,7 +325,8 @@ async function resolveMethodParams(
   const args = new Array(len);
 
   for (let i = 0; i < len; i++) {
-    args[i] = await params[i].resolver(req, res);
+    const resolver = params[i].resolver;
+    args[i] = resolver ? await resolver(req, res) : null;
   }
 
   return args;
@@ -416,7 +457,14 @@ async function prepareRoute({
   const handler = instance[propertyKey];
 
   const methodMeta = getRouteMethodMeta(target, propertyKey);
-  const params = [...(methodMeta.params?.params || [])].sort((a, b) => a.index - b.index);
+  const rawParams = methodMeta.params?.params || [];
+  const params = [...rawParams]
+    .sort((a, b) => a.index - b.index)
+    .map((p) => ({
+      ...p,
+      resolver: buildParameterResolver(p),
+    }));
+
   const outputSchema = getOutputSchema(methodMeta);
   const middlewares = buildRouteMiddlewares(methodMeta);
 
@@ -439,16 +487,25 @@ async function prepareTargetRoutes(
   prefix: string,
   log: (space: keyof LogSpaces, message: string) => void
 ): Promise<void> {
-  if (!router) return;
-
   const methods = getMethodMetadataMap(target);
   const propertyKeys = Object.keys(methods);
 
   for (const propertyKey of propertyKeys) {
     const methodMeta = methods[propertyKey];
-    const route = methodMeta.route;
 
+    // Handle Messaging
+    if (methodMeta.onMessage) {
+      const bus = container.resolve(MessageBus);
+      bus.listen(methodMeta.onMessage.topic, async (data) => {
+        return await instance[propertyKey].call(instance, data);
+      });
+      log("messaging", `${namespace}/${propertyKey} -> ${methodMeta.onMessage.topic}`);
+    }
+
+    const route = methodMeta.route;
     if (!route) continue;
+
+    if (!router) continue;
 
     await prepareRoute({
       target,

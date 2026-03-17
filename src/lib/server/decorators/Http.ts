@@ -7,7 +7,7 @@ import { HyperMeta } from "./metadata";
  * 🛠️ Helper to create parameter decorators
  */
 export function createParamDecorator(
-  key: string,
+  source: "body" | "query" | "params" | "headers" | "req" | "res",
   decorator: string,
   keyOrSchema?: string | object | Function,
   schemaOrTransform?: object | Function,
@@ -18,43 +18,20 @@ export function createParamDecorator(
     const root = HyperMeta.get(target, propertyKey) as any;
     const params = root.params?.params || [];
 
-    const resolver: ParameterResolver = customResolver || (async (req: Request, res: Response) => {
-      if (decorator === 'Req') return req;
-      if (decorator === 'Res') return res;
-
-      let source = (req as any)[key];
-
-      // hyper-express: if source is 'body', we must call .json() as it is async
-      if (key === 'body' && typeof req.json === 'function') {
-        source = await req.json();
-      }
-
-      if (!source) return null;
-
-      const rawValue = isWholeSource ? source : (typeof keyOrSchema === 'string' ? source[keyOrSchema] : source);
-      const schema = (typeof keyOrSchema === 'object' || typeof keyOrSchema === 'function') ? keyOrSchema : schemaOrTransform;
-
-      if (!schema) return rawValue;
-
-      return await transformRegistry.resolve({
-        data: rawValue,
-        schema,
-        options: {},
-        req,
-        res,
-        from: key as any
-      });
-    });
+    const picker = typeof keyOrSchema === 'string' ? keyOrSchema : undefined;
+    const schema = (typeof keyOrSchema === 'object' || typeof keyOrSchema === 'function') 
+      ? keyOrSchema 
+      : schemaOrTransform;
 
     params.push({
       index,
       type: (Reflect.getMetadata("design:paramtypes", target, propertyKey) || [])[index],
-      key: typeof keyOrSchema === 'string' ? keyOrSchema : key,
-      name: decorator,
+      source,
+      picker,
+      schema,
+      isWholeSource: isWholeSource || (picker === undefined && keyOrSchema !== undefined),
       decorator,
-      resolver,
-      schema: (typeof keyOrSchema === 'object' || typeof keyOrSchema === 'function') ? keyOrSchema : schemaOrTransform,
-      isWholeSource: isWholeSource || (typeof keyOrSchema !== 'string' && keyOrSchema !== undefined),
+      resolver: customResolver,
     });
 
     HyperMeta.set(target, propertyKey, {
@@ -68,7 +45,7 @@ export function Query(keyOrSchema?: string | object | Function, schemaOrTransfor
 }
 
 export function Body(keyOrSchema?: string | object | Function, schemaOrTransform?: object | Function) {
-  return createParamDecorator("body", "Body", keyOrSchema, schemaOrTransform, true);
+  return createParamDecorator("body", "Body", keyOrSchema, schemaOrTransform);
 }
 
 export function Param(keyOrSchema: string | object | Function, schemaOrTransform?: object | Function) {
@@ -80,11 +57,11 @@ export function Headers(keyOrSchema?: string | object | Function, schemaOrTransf
 }
 
 export const Req = () => createParamDecorator("req", "Req", undefined, undefined, true, (req) => req);
-export const Res = () => createParamDecorator("res", "Res", undefined, undefined, true, (req, res) => res);
+export const Res = () => createParamDecorator("res", "Res", undefined, undefined, true, (_req, res) => res);
 
 export const createCustomRequestDecorator = (
   decoratorName: string,
   resolver: ParameterResolver
 ) => {
-  return createParamDecorator("req", decoratorName, resolver);
+  return createParamDecorator("req", decoratorName, undefined, undefined, true, resolver);
 };

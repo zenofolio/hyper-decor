@@ -1,12 +1,8 @@
 import "reflect-metadata";
 import { SwaggerMeta } from '../metadata';
-import { 
-  Operation, 
-  OpenApiParameter, 
-  OpenApiResponses, 
-  RequestBody, 
-  MediaType,
-  Schema 
+import {
+    Operation,
+    Schema
 } from '../types';
 import { Constructor } from '../../server/decorators/types';
 import { HyperMeta } from '../../server/decorators/metadata';
@@ -24,10 +20,10 @@ export function collectMethodMetadata(target: Constructor, propertyKey?: string)
 
     // 1. Get user-defined OpenAPI metadata from decorators
     const baseOperation = SwaggerMeta.get(target, propertyKey) as Operation;
-    
+
     // 2. Get framework metadata (params, route, etc.)
     const hyperMeta = HyperMeta.get(target, propertyKey) as HyperMethodMetadata;
-    
+
     const operation: Operation = {
         ...baseOperation,
         parameters: [...(baseOperation.parameters || [])],
@@ -40,16 +36,14 @@ export function collectMethodMetadata(target: Constructor, propertyKey?: string)
             const inType = mapParamIn(param.decorator);
             if (!inType) return; // Skip 'body' or unknown
 
-            // Use the key as the name if it's specified, otherwise fall back to name/decorator
-            const name = (typeof param.key === 'string' && !['query', 'params', 'headers', 'body'].includes(param.key.toLowerCase())) 
-                ? param.key 
-                : (param.name || param.decorator || 'param');
+            const name = param.picker || param.name || param.decorator || 'param';
 
-            const schema = param.schema 
+            const schema = param.schema
                 ? (transformRegistry.getOpenApiSchema(param.schema) || collectSchema(param.schema))
                 : { type: 'string' };
 
             // If it's an object, we might want to explode it (if it's Query/Headers)
+            // Or if it's a DTO (whole source)
             if (schema.type === 'object' && schema.properties && (inType === 'query' || inType === 'header')) {
                 Object.entries(schema.properties).forEach(([propName, prop]) => {
                     operation.parameters!.push({
@@ -73,18 +67,18 @@ export function collectMethodMetadata(target: Constructor, propertyKey?: string)
     // 4. Bridge Request Body (@Body)
     const bodyParam = hyperMeta.params?.params?.find((p) => p.decorator === 'Body');
     if (bodyParam && !operation.requestBody) {
-        let schema = bodyParam.schema 
+        let schema = bodyParam.schema
             ? (transformRegistry.getOpenApiSchema(bodyParam.schema) || collectSchema(bodyParam.schema))
             : { type: 'object' };
 
-        // If a specific key was requested, wrap the schema in an object
-        if (typeof bodyParam.key === 'string' && bodyParam.key !== 'body') {
+        // If a specific picker was requested, wrap the schema in an object
+        if (bodyParam.picker && bodyParam.picker !== 'body') {
             schema = {
                 type: 'object',
                 properties: {
-                    [bodyParam.key]: schema
+                    [bodyParam.picker]: schema
                 },
-                required: [bodyParam.key]
+                required: [bodyParam.picker]
             };
         }
 

@@ -7,7 +7,7 @@ import type {
 } from "hyper-express";
 
 import { InjectionToken, RegistrationOptions } from "tsyringe"
-import { IMessageTransport } from "../common/transport";
+import { IMessageTransport } from "../../../common/transport";
 
 //////////////////////////
 /// Boot Interfaces
@@ -58,6 +58,7 @@ export interface LogSpaces {
   controllers: boolean;
   middleware: boolean;
   routes: boolean;
+  messaging: boolean;
 }
 
 export interface IHyperHooks {
@@ -129,12 +130,13 @@ export type HyperParameterMetadata = {
   params: {
     index: number;
     type: Constructor | Function;
-    key: string;
+    source?: "body" | "query" | "params" | "headers" | "req" | "res";
+    picker?: string;
+    schema?: object | Function;
+    isWholeSource?: boolean;
     name?: string;
     decorator: string;
-    resolver: ParameterResolver;
-    schema?: object;
-    isWholeSource?: boolean;
+    resolver?: ParameterResolver; // Can be pre-provided or built at startup
   }[];
 };
 
