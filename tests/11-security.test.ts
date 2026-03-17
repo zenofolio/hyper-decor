@@ -1,60 +1,183 @@
 import "reflect-metadata";
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import {
   Get,
   HyperApp,
   HyperController,
   HyperModule,
-  getAppTree,
+  createApplication,
+  Scope,
+  Role,
+  Middleware,
 } from "../src";
-import { ApiSecurity, ApiBearerAuth } from "../src/lib/openapi/decorators";
+import { setRole, setScopes } from "../src/common/helpers";
+import { fetch } from "undici";
+
+// --- Mock Auth Middleware ---
+const MockAuth = (req: any, res: any, next: any) => {
+  const roles = req.header("x-roles")?.split(",").map((r: string) => r.trim());
+  const scopes = req.header("x-scopes")?.split(",").map((s: string) => s.trim());
+
+  if (roles) setRole(req, roles);
+  if (scopes) setScopes(req, scopes);
+
+  next();
+};
 
 @HyperController({ path: "/secure" })
-@ApiSecurity({ classAuth: [] })
+@Middleware(MockAuth)
 class SecureController {
   
-  @Get("/private")
-  @ApiBearerAuth()
-  @ApiSecurity({ methodAuth: ["admin"] })
-  getPrivate() { }
+  @Get("/roles")
+  @Role(["admin", "editor"])
+  async testRoles() {
+    return { ok: true, access: "roles" };
+  }
+
+  @Get("/scopes")
+  @Scope(["profile:read", "profile:write"])
+  async testScopes() {
+    return { ok: true, access: "scopes" };
+  }
 
   @Get("/public")
-  getPublic() { }
+  async testPublic() {
+    return { ok: true, access: "public" };
+  }
+
+  @Get("/mixed")
+  @Role("user")
+  @Scope("profile:read")
+  async testMixed() {
+    return { ok: true, access: "mixed" };
+  }
+}
+
+@HyperController({ path: "/admin" })
+@Middleware(MockAuth)
+@Role("admin") // Level 1: Controller must have admin
+class AdminController {
+  @Get("/delete")
+  @Scope("db:delete") // Level 2: Method must have db:delete
+  async deleteItem() {
+    return { ok: true, access: "deleted" };
+  }
 }
 
 @HyperModule({
-  path: "/v1",
-  controllers: [SecureController],
+  controllers: [SecureController, AdminController],
 })
-class V1Module { }
+class SecurityModule { }
 
 @HyperApp({
-  modules: [V1Module],
+  modules: [SecurityModule],
 })
-class App { }
+class SecurityApp { }
 
-describe("Security Decorators Integration", () => {
-  it("should extract security requirements at class and method levels", () => {
-    const tree = getAppTree(App);
+describe("Security Enforcement (Functional)", () => {
+  let app: any;
+  let baseUrl: string;
 
-    const secureCtrl = tree.modules["V1Module"].controllers["SecureController"];
-    
-    // Class level security
-    expect(secureCtrl.openapi.security).toBeDefined();
-    expect(secureCtrl.openapi.security.some(s => s.classAuth)).toBe(true);
+  beforeAll(async () => {
+    app = await createApplication(SecurityApp);
+    await app.listen(0);
+    baseUrl = `http://127.0.0.1:${app.port}`;
+    console.log(`[TEST] Base URL: ${baseUrl}, Port: ${app.port}`);
+  });
 
-    // Method level security (Private)
-    const privateRoute = secureCtrl.routes.find(r => r.propertyKey === "getPrivate");
-    expect(privateRoute?.openapi.security).toBeDefined();
-    expect(privateRoute?.openapi.security.length).toBe(2); // BearerAuth + methodAuth
-    expect(privateRoute?.openapi.security.some(s => s.bearerAuth)).toBe(true);
-    expect(privateRoute?.openapi.security.some(s => s.methodAuth)).toBe(true);
+  afterAll(async () => {
+    await app.close();
+  });
 
-    // Method level security (Public - inherits nothing automatically in Operation object, 
-    // but the class has it. OpenAPI usually expects manual override or it applies class level)
-    const publicRoute = secureCtrl.routes.find(r => r.propertyKey === "getPublic");
-    expect(publicRoute?.openapi.security).toBeUndefined(); // Should be undefined as it's not on method
-    
-    console.log("Security metadata verified successfully.");
+  describe("Role Enforcement (OR logic)", () => {
+    it("should allow access if user has ONE of the required roles", async () => {
+      const res = await fetch(`${baseUrl}/secure/roles`, {
+        headers: { "x-roles": "editor" }
+      });
+      expect(res.status).toBe(200);
+      expect(await res.json()).toMatchObject({ access: "roles" });
+    });
+
+    it("should deny access if user has none of the required roles", async () => {
+      const res = await fetch(`${baseUrl}/secure/roles`, {
+        headers: { "x-roles": "guest" }
+      });
+      expect(res.status).toBe(403);
+      const body: any = await res.json();
+      expect(body.error).toContain("Only admin, editor can access this resource");
+    });
+  });
+
+  describe("Scope Enforcement (AND logic)", () => {
+    it("should allow access ONLY if user has ALL required scopes", async () => {
+      const res = await fetch(`${baseUrl}/secure/scopes`, {
+        headers: { "x-scopes": "profile:read, profile:write" }
+      });
+      expect(res.status).toBe(200);
+    });
+
+    it("should deny access if one scope is missing", async () => {
+      const res = await fetch(`${baseUrl}/secure/scopes`, {
+        headers: { "x-scopes": "profile:read" }
+      });
+      expect(res.status).toBe(403);
+      const body: any = await res.json();
+      expect(body.error).toMatch(/forbidden|scopes|role/i);
+    });
+  });
+
+  describe("Full Access (*)", () => {
+    it("should allow access to anything if user has '*' role", async () => {
+      const res = await fetch(`${baseUrl}/secure/roles`, {
+        headers: { "x-roles": "*" }
+      });
+      expect(res.status).toBe(200);
+    });
+
+    it("should allow access to anything if user has '*' scope", async () => {
+      const res = await fetch(`${baseUrl}/secure/scopes`, {
+        headers: { "x-scopes": "*" }
+      });
+      expect(res.status).toBe(200);
+    });
+  });
+
+  describe("Hierarchical Enforcement (Additive)", () => {
+    it("should allow access if BOTH controller and method requirements are met", async () => {
+      const res = await fetch(`${baseUrl}/admin/delete`, {
+        headers: { 
+          "x-roles": "admin",
+          "x-scopes": "db:delete"
+        }
+      });
+      expect(res.status).toBe(200);
+    });
+
+    it("should deny access if controller requirement is not met", async () => {
+      const res = await fetch(`${baseUrl}/admin/delete`, {
+        headers: { 
+          "x-roles": "user",
+          "x-scopes": "db:delete"
+        }
+      });
+      expect(res.status).toBe(403);
+    });
+
+    it("should deny access if method requirement is not met", async () => {
+      const res = await fetch(`${baseUrl}/admin/delete`, {
+        headers: { 
+          "x-roles": "admin",
+          "x-scopes": "db:read"
+        }
+      });
+      expect(res.status).toBe(403);
+    });
+  });
+
+  describe("Public Access", () => {
+    it("should allow access to public routes without headers", async () => {
+      const res = await fetch(`${baseUrl}/secure/public`);
+      expect(res.status).toBe(200);
+    });
   });
 });

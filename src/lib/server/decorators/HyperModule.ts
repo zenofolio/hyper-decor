@@ -8,7 +8,7 @@ import { HyperModuleMetadata, Constructor } from "./types";
 export function HyperModule(options: HyperModuleMetadata) {
   return (Target: Constructor) => {
     HyperMeta.set(Target, undefined, {
-      type: 'module',
+      type: "module",
       ...options,
     });
   };

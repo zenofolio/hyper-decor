@@ -12,7 +12,8 @@ export default class NotScopeException extends HyperException {
       {
         requestScopes,
         requiredScopes,
-      }
+      },
+      403
     );
   }
 }

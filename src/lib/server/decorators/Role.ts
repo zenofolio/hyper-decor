@@ -7,7 +7,7 @@ import { RoleType } from "./types";
  * Purely injects role metadata into the target class or method.
  */
 export const Role = <T extends string = string>(roles: RoleType<T>) =>
-  (target: any, propertyKey?: string | symbol) => {
+  (target: any, propertyKey?: any) => {
     const _roles = Array.isArray(roles) ? roles : [roles];
     HyperMeta.set(target, propertyKey, { roles: _roles });
   };

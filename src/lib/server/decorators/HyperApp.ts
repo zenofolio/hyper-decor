@@ -9,9 +9,8 @@ import { HyperAppMetadata, Constructor } from "./types";
 export function HyperApp(options: HyperAppMetadata) {
   return (Target: Constructor) => {
     HyperMeta.set(Target, undefined, {
-      type: 'app',
+      type: "app",
       ...options,
-      modules: options.modules || [],
     });
   };
 }

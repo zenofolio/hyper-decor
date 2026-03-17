@@ -9,6 +9,6 @@ export default class NotRoleException extends HyperException {
     super(message, "NotRoleException", {
       roles,
       requiredRoles,
-    });
+    }, 403);
   }
 }

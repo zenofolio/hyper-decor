@@ -267,10 +267,14 @@ async function prepareRoute(
 ): Promise<void> {
   const { method, path, propertyKey, options } = route;
   const methodMeta = getMethodMetadataMap(target)[propertyKey] || {};
-  
+  const ctrlMeta = getCommonMetadata(target);
+
+  const roles = [...(ctrlMeta.roles ?? []), ...(methodMeta.roles ?? [])];
+  const scopes = [...(ctrlMeta.scopes ?? []), ...(methodMeta.scopes ?? [])];
+
   const middlewares = middlewareTransformer(methodMeta.middlewares ?? []);
-  roleTransform(methodMeta.roles ?? [], m => middlewares.push(m));
-  scopeTransfrom(methodMeta.scopes ?? [], (m, s) => {
+  roleTransform(roles, m => middlewares.push(m));
+  scopeTransfrom(scopes, (m, s) => {
     middlewares.push(m);
     ScopeStore.addAll(s);
   });
@@ -446,6 +450,17 @@ export async function prepareApplication(
   log: (space: keyof LogSpaces, message: string) => void
 ): Promise<Server> {
   const appServer = new Server(options.uwsOptions || options.options);
+  
+  // Register global error handler to properly handle status codes from exceptions
+  appServer.set_error_handler((req, res, error) => {
+    const status = (error as any).status || 500;
+    res.status(status).json({
+      error: error.message || "Internal Server Error",
+      code: (error as any).code || "InternalServerError",
+      ...(error instanceof Error ? { stack: error.stack } : {})
+    });
+  });
+
   ensureResolvable(Target);
   const appInstance = container.resolve(Target);
   const data = getData(Target);

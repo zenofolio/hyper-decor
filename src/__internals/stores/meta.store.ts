@@ -75,27 +75,39 @@ export class Metadata {
      */
     static prefix<TCommon extends object, TMember extends object>(name: string) {
 
+        const resolveKey = (key: any): PropertyKeyLike | undefined => {
+            if (typeof key === 'string' || typeof key === 'symbol' || key === undefined) {
+                return key;
+            }
+            if (typeof key === 'object' && key !== null) {
+                if (key.kind === 'class') return undefined;
+                if (key.name) return key.name;
+            }
+            return undefined;
+        };
+
         return {
             set: (
                 target: object,
-                propertyKey: PropertyKeyLike | undefined,
+                propertyKey: any,
                 data: Partial<TCommon> | Partial<TMember>
             ): void => {
                 const root = Metadata.get<Record<string, any>>(target);
                 const scoped = (root[name] ??= {});
+                const key = resolveKey(propertyKey);
 
-                if (propertyKey === undefined) {
+                if (key === undefined) {
                     Object.assign((scoped.common ??= {}), data);
                     return;
                 }
 
                 const methods = (scoped.methods ??= {});
-                Object.assign((methods[propertyKey] ??= {}), data);
+                Object.assign((methods[key] ??= {}), data);
             },
 
             get: (
                 target: object,
-                propertyKey?: PropertyKeyLike
+                propertyKey?: any
             ): Partial<TCommon> | Partial<TMember> => {
                 const root = Metadata.get<Record<string, any>>(target);
                 const scoped = root[name] as
@@ -109,11 +121,12 @@ export class Metadata {
                     return {} as Partial<TCommon> | Partial<TMember>;
                 }
 
-                if (propertyKey === undefined) {
+                const key = resolveKey(propertyKey);
+                if (key === undefined) {
                     return (scoped.common ??= {});
                 }
 
-                return scoped.methods?.[propertyKey] ?? {};
+                return scoped.methods?.[key] ?? {};
             },
         };
     }

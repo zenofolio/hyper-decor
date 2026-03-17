@@ -8,16 +8,17 @@ import { HyperControllerMetadata } from "./types";
 export function HyperController(options?: HyperControllerMetadata | string) {
   return (Target: any) => {
     const isString = typeof options === "string";
-    const meta: HyperControllerMetadata = {
+    const data: any = {
+      type: "controller",
       path: isString ? options : options?.path ?? "/",
-      roles: isString ? [] : options?.roles ?? [],
-      scopes: isString ? [] : options?.scopes ?? [],
-      imports: isString ? [] : options?.imports ?? [],
     };
 
-    HyperMeta.set(Target, undefined, {
-      type: 'controller',
-      ...meta,
-    });
+    if (!isString && options) {
+      if (options.roles) data.roles = options.roles;
+      if (options.scopes) data.scopes = options.scopes;
+      if (options.imports) data.imports = options.imports;
+    }
+
+    HyperMeta.set(Target, undefined, data);
   };
 }
