@@ -1,7 +1,9 @@
 import "reflect-metadata";
 import { describe, it, expect } from "vitest";
-import { HyperApp, HyperModule, HyperService, OnInit, createApplication, OnMessage, MessageBus, delay } from "../src";
+import { HyperApp, HyperModule, HyperService, OnInit, createApplication, OnMessage, MessageBus } from "../src";
 import { container } from "tsyringe";
+
+const delay = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
 
 @HyperService()
 class NotificationService {

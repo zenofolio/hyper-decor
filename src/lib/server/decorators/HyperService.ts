@@ -21,6 +21,7 @@ export function HyperService({
 
     // 1. DI Registration
     injectable()(Target);
+
     if (!container.isRegistered(useToken)) {
       if (singleton) {
         container.registerSingleton(useToken, Target);

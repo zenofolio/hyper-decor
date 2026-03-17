@@ -1,15 +1,16 @@
 import "reflect-metadata";
 import { describe, it, expect, vi } from "vitest";
-import { 
-  HyperApp, 
-  HyperModule, 
-  HyperService, 
-  OnMessage, 
-  createApplication, 
+import {
+  HyperApp,
+  HyperModule,
+  HyperService,
+  OnMessage,
+  createApplication,
   IMessageTransport,
-  delay 
 } from "../src";
 import { container } from "tsyringe";
+
+const delay = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
 // 1. Mock Transport Implementation
 class MockTransport implements IMessageTransport {
@@ -18,7 +19,7 @@ class MockTransport implements IMessageTransport {
 
   async emit(topic: string, data: any): Promise<void> {
     this.lastEmitted = { topic, data };
-    
+
     // Simulate network delay or bridge behavior
     const listeners = this.handlers.get(topic) || [];
     listeners.forEach(h => h(data));
@@ -45,7 +46,7 @@ class TestService {
 @HyperModule({
   imports: [TestService]
 })
-class TestModule {}
+class TestModule { }
 
 describe("Transport Extensibility", () => {
   it("should use and verify a custom transport", async () => {
@@ -57,10 +58,11 @@ describe("Transport Extensibility", () => {
       modules: [TestModule],
       transports: [transport] // Inject the custom transport
     })
-    class App {}
+    class App { }
 
     const app = await createApplication(App);
     const service = container.resolve(TestService);
+
 
     // Verify: The framework should have called 'listen' on our transport
     // during bootstrap because of the @OnMessage decorator.
@@ -74,7 +76,7 @@ describe("Transport Extensibility", () => {
     // Test: Trigger the transport manually (simulating external incoming message)
     const handlers = transport.handlers.get("custom.event") || [];
     await Promise.all(handlers.map(h => h({ foo: "bar" })));
-    
+
     await delay(10); // Wait for async handler
     expect(service.receivedData).toEqual({ foo: "bar" });
 

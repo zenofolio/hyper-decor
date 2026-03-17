@@ -10,10 +10,12 @@ export class MessageBus {
   }
 
   async emit(topic: string, data: any): Promise<void> {
+    console.log(`[MessageBus] EMIT: ${topic}`, data);
     await Promise.all(this.transports.map((t) => t.emit(topic, data)));
   }
 
   async listen(topic: string, handler: (data: any) => Promise<void> | void): Promise<void> {
+    console.log(`[MessageBus] LISTEN: ${topic}`);
     await Promise.all(this.transports.map((t) => t.listen(topic, handler)));
   }
 

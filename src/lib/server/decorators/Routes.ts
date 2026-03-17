@@ -7,7 +7,7 @@ import { RouteMetadata } from "./types";
  */
 function createRouteDecorator<T = Record<string, unknown>>(method: string) {
   return (path: string = "/", options?: T) => {
-    return (target: object, propertyKey?: string | symbol) => {
+    return (target: object, propertyKey?: any) => {
       const returnType = Reflect.getMetadata("design:returntype", target, propertyKey!);
 
       HyperMeta.set(target, propertyKey!, {

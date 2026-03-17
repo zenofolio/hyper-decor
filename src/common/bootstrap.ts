@@ -1,8 +1,7 @@
 import { container } from "tsyringe";
 import { MessageBus } from "./message-bus";
 import { IHyperApp, IHyperApplication } from "../type";
-import { HyperApplicationPrivate, HyperCommonMetadata } from "../__internals/types";
-import { Server } from "hyper-express";
+import { HyperCommonMetadata } from "../__internals/types";
 import { HyperMeta } from "../__internals/stores";
 import { prepareApplication } from "../__internals/helpers/prepare.helper";
 import { transformRegistry } from "../__internals/transform/transform.registry";
@@ -21,8 +20,8 @@ export async function createApplication<T extends IHyperApplication>(
 
   if (metadata.type !== "app") {
     throw new Error("Application must be decorated with @HyperApp");
-
   }
+
   const logger = metadata.logger || console.log;
   const logWrapper = (space: keyof LogSpaces, msg: string) => logger(`[${space}] ${msg}`);
 
@@ -44,7 +43,7 @@ export async function createApplication<T extends IHyperApplication>(
           await bus.emit(topic, data);
         };
       }
-      
+
       // Prioritize application instance methods/props
       if (prop in target) {
         const value = target[prop];
@@ -57,7 +56,7 @@ export async function createApplication<T extends IHyperApplication>(
     },
   });
 
-  if ("onPrepare" in appInstance) {
+  if ("onPrepare" in appInstance && typeof appInstance.onPrepare === "function") {
     const onPrepare = (appInstance as any).onPrepare.bind(appInstance);
     await onPrepare();
   }

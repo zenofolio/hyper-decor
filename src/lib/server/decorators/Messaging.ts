@@ -8,9 +8,9 @@ import { HyperMeta } from "./metadata";
  * @param topic The topic or pattern to listen to (e.g. "user.created", "user.*")
  */
 export const OnMessage = (topic: string) => {
-  return (target: any, propertyKey: string | symbol) => {
-    HyperMeta.set(target, propertyKey, { 
-      onMessage: { topic } 
+  return (target: any, propertyKey: any) => {
+    HyperMeta.set(target, propertyKey, {
+      onMessage: { topic }
     });
   };
 };

@@ -10,7 +10,7 @@ import {
   Query,
   Output,
   createApplication,
-} from "../src";
+} from "../../src";
 import { TransformContext } from "../src/__internals/transform/transform.registry";
 import { Agent, request } from "undici";
 import { performance, monitorEventLoopDelay } from "node:perf_hooks";
@@ -329,7 +329,7 @@ describe("Transformation Overhead Benchmark", () => {
 
       for (const profile of profiles) {
         const iterations = profile.name === "MAX PERFORMANCE" ? 50000 : 10000;
-        
+
         const raw = await runBench(baseUrl, {
           name: profile.name ? `raw ${profile.name}` : `raw c=${profile.concurrency} conn=${profile.connections}`,
           method: "GET",

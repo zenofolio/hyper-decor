@@ -5,12 +5,15 @@ export default defineConfig({
   test: {
     globals: true,
     environment: 'node',
-    include: ['tests/**/*.{test,spec,bench}.ts', 'tests/*.{test,spec,bench}.ts'],
+    include: ['tests/**/*.{test,spec}.ts'],
     poolOptions: {
       threads: {
         singleThread: true,
       },
     },
+    benchmark: {
+      include: ['tests/bench/**/*.{bench}.ts'],
+    }
   },
   plugins: [
     swc.vite({
