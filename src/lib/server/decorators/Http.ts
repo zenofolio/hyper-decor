@@ -1,3 +1,4 @@
+import { Request, Response } from "hyper-express";
 import { transformRegistry } from "../../../__internals/transform/transform.registry";
 import { HyperParameterMetadata, ParameterResolver } from "./types";
 import { HyperMeta } from "./metadata";
@@ -17,17 +18,23 @@ export function createParamDecorator(
     const root = HyperMeta.get(target, propertyKey) as any;
     const params = root.params?.params || [];
 
-    const resolver: ParameterResolver = customResolver || (async (req: any, res: any) => {
+    const resolver: ParameterResolver = customResolver || (async (req: Request, res: Response) => {
       if (decorator === 'Req') return req;
       if (decorator === 'Res') return res;
 
-      const source = (req as Record<string, any>)[key];
+      let source = (req as any)[key];
+
+      // hyper-express: if source is 'body', we must call .json() as it is async
+      if (key === 'body' && typeof req.json === 'function') {
+        source = await req.json();
+      }
+
       if (!source) return null;
 
       const rawValue = isWholeSource ? source : (typeof keyOrSchema === 'string' ? source[keyOrSchema] : source);
       const schema = (typeof keyOrSchema === 'object' || typeof keyOrSchema === 'function') ? keyOrSchema : schemaOrTransform;
 
-      if (!schema || typeof schema === 'string') return rawValue;
+      if (!schema) return rawValue;
 
       return await transformRegistry.resolve({
         data: rawValue,
@@ -35,7 +42,7 @@ export function createParamDecorator(
         options: {},
         req,
         res,
-        from: key
+        from: key as any
       });
     });
 
@@ -46,8 +53,8 @@ export function createParamDecorator(
       name: decorator,
       decorator,
       resolver,
-      schema: typeof keyOrSchema === 'object' ? keyOrSchema : schemaOrTransform,
-      isWholeSource: isWholeSource || typeof keyOrSchema !== 'string',
+      schema: (typeof keyOrSchema === 'object' || typeof keyOrSchema === 'function') ? keyOrSchema : schemaOrTransform,
+      isWholeSource: isWholeSource || (typeof keyOrSchema !== 'string' && keyOrSchema !== undefined),
     });
 
     HyperMeta.set(target, propertyKey, {

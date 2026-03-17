@@ -16,9 +16,9 @@ export function HyperService({
   token,
   singleton = true,
 }: ServiceDecoratorOptions = {}) {
-  return (Target: Constructor) => {
+  return (Target: any) => {
     const useToken = token ?? Target;
-    
+
     // 1. DI Registration
     injectable()(Target);
     if (!container.isRegistered(useToken)) {

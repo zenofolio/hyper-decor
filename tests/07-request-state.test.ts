@@ -10,10 +10,8 @@ import {
   createApplication,
   Req,
   Request,
-  Middleware,
-  IHyperApp
+  Middleware
 } from "../src";
-
 
 const TestMiddleware = (req: Request, res: Response, next: any) => {
   req.setValue("middleware_injection", "12345");
@@ -70,6 +68,7 @@ class StateModule { }
 class App { }
 
 import { container } from "tsyringe";
+import { IHyperApp } from "../src/type";
 
 describe("Request State (setValue/getValue)", () => {
 
@@ -87,7 +86,7 @@ describe("Request State (setValue/getValue)", () => {
   });
 
   it("verify prototype", () => {
-    expect(typeof (Request.prototype as any).setValue).toBe("function");
+    expect(typeof Request.prototype.setValue).toBe("function");
   });
 
   it("should correctly set and get values within the same request lifecycle", async () => {

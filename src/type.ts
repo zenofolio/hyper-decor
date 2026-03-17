@@ -1,4 +1,4 @@
-import type { Server, Request } from "hyper-express";
+import type { Server } from "hyper-express";
 
 declare module "hyper-express" {
   interface Request {
@@ -23,5 +23,5 @@ export type IHyperApp<T> = T & Server & {
 };
 
 export interface IHyperAppTarget {
-  new (...args: any[]): IHyperApplication;
+  new(...args: any[]): IHyperApplication;
 }

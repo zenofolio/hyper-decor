@@ -10,9 +10,9 @@ import {
   Response,
   OnInit,
   createApplication,
-} from "../src";
+} from "../../src";
 import { container, inject, delay as tdelay, injectable } from "tsyringe";
-import { request } from "./helpers/request";
+import { request } from "../helpers/request";
 
 // Global counter to verify execution
 let initCounter = 0;

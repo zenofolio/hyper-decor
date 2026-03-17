@@ -1,4 +1,4 @@
-console.error("[EMERGENCY] src/index.ts loaded");
+import "./extension";
 export * from "./lib/server/exeptions";
 export * from "./constants";
 export * from "./extension";

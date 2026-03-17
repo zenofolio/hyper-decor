@@ -416,7 +416,7 @@ async function prepareRoute({
   const handler = instance[propertyKey];
 
   const methodMeta = getRouteMethodMeta(target, propertyKey);
-  const params = methodMeta.params?.params || [];
+  const params = [...(methodMeta.params?.params || [])].sort((a, b) => a.index - b.index);
   const outputSchema = getOutputSchema(methodMeta);
   const middlewares = buildRouteMiddlewares(methodMeta);
 

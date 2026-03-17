@@ -1,6 +1,8 @@
 import "reflect-metadata";
 import { describe, it, expect } from "vitest";
-import { HyperApp, HyperModule, HyperService, OnInit, createApplication, delay } from "../src";
+import { HyperApp, HyperModule, HyperService, OnInit, createApplication } from "../../src";
+
+const delay = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
 
 // Simulate many services with artificial delays
 function createMockService(id: number, delayMs: number) {
@@ -23,12 +25,12 @@ const services = Array.from({ length: SERVICE_COUNT }, (_, i) => createMockServi
   path: "/bench",
   imports: services,
 })
-class BenchModule {}
+class BenchModule { }
 
 @HyperApp({
   modules: [BenchModule],
 })
-class BenchApp {}
+class BenchApp { }
 
 describe("Startup Benchmark", () => {
   it(`should measure startup time for ${SERVICE_COUNT} services with ${DELAY_PER_SERVICE}ms delay each`, async () => {
@@ -40,7 +42,7 @@ describe("Startup Benchmark", () => {
     console.log(`\n🚀 Startup duration: ${duration}ms`);
     console.log(`📈 Expected sequential: ~${SERVICE_COUNT * DELAY_PER_SERVICE}ms`);
     console.log(`📉 Expected parallel: ~${DELAY_PER_SERVICE}ms (plus overhead)`);
-    
+
     expect(duration).toBeGreaterThan(0);
     await app.close();
   });

@@ -13,9 +13,10 @@ import {
   createApplication,
 } from "../src";
 import { request } from "undici";
+import { IHyperApp } from "../src/type";
 
 class UserDto {
-    constructor(public name: string, public email: string) {}
+  constructor(public name: string, public email: string) { }
 }
 
 @HyperController("/poly")
@@ -54,20 +55,31 @@ class PolyController {
 @HyperModule({
   controllers: [PolyController],
 })
-class PolyModule {}
+class PolyModule { }
 
 @HyperApp({
   modules: [PolyModule],
 })
-class PolyApp {}
+class PolyApp { }
 
 describe("Polymorphic & Functional Parameter Decorators", () => {
-  let app: any;
+  let app: IHyperApp<PolyApp>;
   const port = 3019;
   const baseUrl = `http://127.0.0.1:${port}`;
 
   beforeAll(async () => {
     app = await createApplication(PolyApp);
+
+    app.useTransform(({ schema, data }) => {
+      console.log(schema, data);
+      if (schema === UserDto) {
+        return new UserDto(data.name, data.email);
+      } else if (typeof schema === "function") {
+        return schema(data);
+      }
+
+    })
+
     await app.listen(port);
   });
 
@@ -126,7 +138,7 @@ describe("Polymorphic & Functional Parameter Decorators", () => {
 
   it("should support functional transformers in @Headers", async () => {
     const res = await request(`${baseUrl}/poly/headers-fn`, {
-        headers: { "x-custom": "hello" }
+      headers: { "x-custom": "hello" }
     });
     const data = (await res.body.json()) as any;
     expect(res.statusCode).toBe(200);
