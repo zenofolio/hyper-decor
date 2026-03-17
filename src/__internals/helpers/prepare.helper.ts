@@ -16,6 +16,7 @@ import { join } from "../utils/path.util";
 import { transformRegistry } from "../transform/transform.registry";
 
 import { MessageBus } from "../../common/message-bus";
+import { InternalTransport } from "../../common/transport";
 
 import {
   HyperMethodMetadata,
@@ -444,13 +445,14 @@ export async function prepareApplication(
   Target: Constructor,
   log: (space: keyof LogSpaces, message: string) => void
 ): Promise<Server> {
-  const appServer = new Server();
+  const appServer = new Server(options.uwsOptions || options.options);
   ensureResolvable(Target);
   const appInstance = container.resolve(Target);
   const data = getData(Target);
 
   const bus = container.resolve(MessageBus);
-  (options.transports || []).forEach(t => bus.registerTransport(typeof t === "function" ? container.resolve(t as any) : t));
+  const transports = options.transports && options.transports.length > 0 ? options.transports : [InternalTransport];
+  transports.forEach(t => bus.registerTransport(typeof t === "function" ? container.resolve(t as any) : t));
 
   const hooks = (options.hooks ? (typeof options.hooks === "function" ? container.resolve(options.hooks as any) : options.hooks) : undefined) as any;
   const context: MountingContext = { 

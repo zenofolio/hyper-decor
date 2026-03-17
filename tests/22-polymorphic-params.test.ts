@@ -71,7 +71,6 @@ describe("Polymorphic & Functional Parameter Decorators", () => {
     app = await createApplication(PolyApp);
 
     app.useTransform(({ schema, data }) => {
-      console.log(schema, data);
       if (schema === UserDto) {
         return new UserDto(data.name, data.email);
       } else if (typeof schema === "function") {

@@ -7,9 +7,7 @@ export default function middlewareTransformer(
 ): MiddlewareHandler[] {
   return list
     .map((middleware, idx) => {
-      console.log(`[DEBUG] middlewareTransformer [${idx}]: processing ${typeof middleware}`);
       if (isClass(middleware)) {
-        console.log(`[DEBUG] middlewareTransformer [${idx}]: resolving class ${middleware.name}`);
         const instance = container.resolve(
           middleware as any
         ) as MiddlewareClass;
@@ -17,11 +15,9 @@ export default function middlewareTransformer(
       }
 
       if (typeof middleware === "function") {
-        console.log(`[DEBUG] middlewareTransformer [${idx}]: using function ${middleware.name || 'anonymous'}`);
         return middleware;
       }
 
-      console.log(`[DEBUG] middlewareTransformer [${idx}]: unknown type, skipping`);
       return null;
     })
     .filter((middleware) => !!middleware) as MiddlewareHandler[];

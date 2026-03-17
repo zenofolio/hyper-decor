@@ -78,6 +78,7 @@ export interface HyperAppMetadata {
   modules: Constructor[];
   imports?: ImportType[];
   options?: ServerConstructorOptions;
+  uwsOptions?: any;
   transports?: IMessageTransport[];
   hooks?: IHyperHooks | Constructor<IHyperHooks>;
 }
