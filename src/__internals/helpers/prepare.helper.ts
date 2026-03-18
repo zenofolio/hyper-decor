@@ -421,6 +421,13 @@ async function prepareModule(
     }
   }
 
+  // Direct routes on module
+  const methods = getMethodMetadataMap(target);
+  for (const key of Object.keys(methods)) {
+    const route = methods[key].route;
+    if (route) await prepareRoute(target, router, route, instance, context.namespace, log);
+  }
+
   // Controllers
   if (metadata.controllers?.length) {
     for (const c of metadata.controllers) {
@@ -483,6 +490,13 @@ export async function prepareApplication(
   await registerInstanceHandlers(appInstance, Target, context.namespace, log);
   
   applyCommonPipeline(Target.name, { use: (...args) => appServer.use(...args) }, data, log);
+
+  // Direct routes on app
+  const methods = getMethodMetadataMap(Target);
+  for (const key of Object.keys(methods)) {
+    const route = methods[key].route;
+    if (route) await prepareRoute(Target, appServer as any, route, appInstance, context.namespace, log);
+  }
 
   if (options.modules?.length) {
     for (const m of options.modules) {

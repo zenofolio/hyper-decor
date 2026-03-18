@@ -4,9 +4,7 @@ import { createApplication, Get, HyperApp, HyperController, HyperModule, Res, Re
 import { request } from "./helpers/request";
 
 
-@HyperController({
-  path: "/unit",
-})
+@HyperController("/unit")
 class AppController {
   @Get("/")
   async services(@Res() res: Response) {
@@ -41,8 +39,6 @@ describe("HyperApp", () => {
   it("app: should create an application with modules and controllers", async () => {
     const app = await createApplication(Application);
     await app.listen(PORT);
-
-    console.log(app, "app")
 
     try {
       const body = await request("/test/unit", undefined, PORT);
