@@ -11,7 +11,6 @@ export default defineConfig({
         singleThread: true,
       },
     },
-    }
   },
   plugins: [
     swc.vite({

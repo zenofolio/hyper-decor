@@ -1,4 +1,4 @@
-# @zenofolio/hyper-decor (v1.0.73)
+# @zenofolio/hyper-decor
 
 Librería de decoradores para [HyperExpress](https://github.com/kartikk221/hyper-express).
 
