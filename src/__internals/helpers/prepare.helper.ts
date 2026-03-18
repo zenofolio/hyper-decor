@@ -360,6 +360,20 @@ function ensureResolvable(target: Constructor) {
   }
 }
 
+async function registerRoutes(
+  target: Constructor,
+  instance: object,
+  router: Router | Server,
+  namespace: string,
+  log: (space: keyof LogSpaces, message: string) => void
+): Promise<void> {
+  const methods = getMethodMetadataMap(target);
+  for (const key of Object.keys(methods)) {
+    const route = methods[key].route;
+    if (route) await prepareRoute(target, router as Router, route, instance, namespace, log);
+  }
+}
+
 async function prepareController(
   descriptor: ComponentDescriptor<HyperControllerMetadata>,
   context: MountingContext,
@@ -376,11 +390,7 @@ async function prepareController(
   
   applyCommonPipeline(target.name, { use: (...args) => router.use(...args) }, data, log);
 
-  const methods = getMethodMetadataMap(target);
-  for (const key of Object.keys(methods)) {
-    const route = methods[key].route;
-    if (route) await prepareRoute(target, router, route, instance, context.namespace, log);
-  }
+  await registerRoutes(target, instance, router, context.namespace, log);
 
   context.parentRouter.use(context.prefix, router);
 }
@@ -422,11 +432,7 @@ async function prepareModule(
   }
 
   // Direct routes on module
-  const methods = getMethodMetadataMap(target);
-  for (const key of Object.keys(methods)) {
-    const route = methods[key].route;
-    if (route) await prepareRoute(target, router, route, instance, context.namespace, log);
-  }
+  await registerRoutes(target, instance, router, context.namespace, log);
 
   // Controllers
   if (metadata.controllers?.length) {
@@ -492,11 +498,7 @@ export async function prepareApplication(
   applyCommonPipeline(Target.name, { use: (...args) => appServer.use(...args) }, data, log);
 
   // Direct routes on app
-  const methods = getMethodMetadataMap(Target);
-  for (const key of Object.keys(methods)) {
-    const route = methods[key].route;
-    if (route) await prepareRoute(Target, appServer as any, route, appInstance, context.namespace, log);
-  }
+  await registerRoutes(Target, appInstance, appServer, context.namespace, log);
 
   if (options.modules?.length) {
     for (const m of options.modules) {

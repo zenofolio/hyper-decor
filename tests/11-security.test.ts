@@ -180,4 +180,75 @@ describe("Security Enforcement (Functional)", () => {
       expect(res.status).toBe(200);
     });
   });
+
+  describe("Direct Routes on App/Module (Isolated)", () => {
+    @HyperController("/direct-ctrl")
+    class DirectController {
+      @Get("/")
+      async index() { return { ok: true, source: "controller" }; }
+    }
+
+    @HyperModule({
+      path: "/mod",
+      controllers: [DirectController]
+    })
+    @Middleware(MockAuth)
+    @Role("module-admin")
+    class DirectModule {
+      @Get("/module-route")
+      async moduleRoute() { return { ok: true, source: "module" }; }
+    }
+
+    @HyperApp({
+      modules: [DirectModule]
+    })
+    @Middleware(MockAuth)
+    class DirectApp {
+      @Get("/app-route")
+      async appRoute() { return { ok: true, source: "app" }; }
+    }
+
+    let directApp: any;
+    let directUrl: string;
+
+    beforeAll(async () => {
+      directApp = await createApplication(DirectApp);
+      await directApp.listen(0);
+      directUrl = `http://127.0.0.1:${directApp.port}`;
+    });
+
+    afterAll(async () => {
+      await directApp.close();
+    });
+
+    it("should allow access to direct route on App", async () => {
+      const res = await fetch(`${directUrl}/app-route`);
+      expect(res.status).toBe(200);
+      expect(await res.json()).toMatchObject({ source: "app" });
+    });
+
+    it("should allow access to direct route on Module with correct role", async () => {
+      const res = await fetch(`${directUrl}/mod/module-route`, {
+        headers: { "x-roles": "module-admin" }
+      });
+      expect(res.status).toBe(200);
+      expect(await res.json()).toMatchObject({ source: "module" });
+    });
+
+    it("should deny access to direct route on Module without correct role", async () => {
+      const res = await fetch(`${directUrl}/mod/module-route`, {
+        headers: { "x-roles": "user" }
+      });
+      expect(res.status).toBe(403);
+    });
+
+    it("should allow access to controller within the module", async () => {
+      // Must also have module-admin role because it's inherited!
+      const res = await fetch(`${directUrl}/mod/direct-ctrl`, {
+        headers: { "x-roles": "module-admin" }
+      });
+      expect(res.status).toBe(200);
+      expect(await res.json()).toMatchObject({ source: "controller" });
+    });
+  });
 });
