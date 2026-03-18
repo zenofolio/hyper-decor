@@ -23,7 +23,11 @@ export async function createApplication<T extends IHyperApplication>(
   }
 
   const logger = metadata.logger || console.log;
-  const logWrapper = (space: keyof LogSpaces, msg: string) => logger(`[${space}] ${msg}`);
+  const logWrapper = (space: keyof LogSpaces, msg: string) => {
+    if (metadata.logs?.[space]) {
+      logger(`[${space.toUpperCase()}] ${msg}`);
+    }
+  };
 
 
   const appServer = await prepareApplication(metadata, application, logWrapper);
