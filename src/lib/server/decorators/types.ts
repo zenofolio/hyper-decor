@@ -24,7 +24,7 @@ export interface IsSingleton {
 export type Constructor<R = object> = new (...args: any[]) => R;
 
 export type ImportObject = {
-  token: InjectionToken;
+  token: (abstract new (...args: any[]) => any) | InjectionToken;
   useClass?: Constructor;
   useValue?: any;
   useFactory?: (...args: any[]) => any;

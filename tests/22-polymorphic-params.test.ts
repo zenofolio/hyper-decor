@@ -46,6 +46,22 @@ class PolyController {
     return { uid };
   }
 
+  @Get("/param-number/:id")
+  async paramNumber(@Param("id", (v: string) => {
+
+    const value = parseInt(v);
+
+
+    if (isNaN(value)) {
+      throw new Error("is not a number")
+    }
+
+    return value;
+
+  }) id: number) {
+    return { id, type: typeof id };
+  }
+
   @Get("/headers-fn")
   async headersFn(@Headers("x-custom", (v: string) => v.toUpperCase()) custom: string) {
     return { custom };
@@ -133,6 +149,14 @@ describe("Polymorphic & Functional Parameter Decorators", () => {
     const data = (await res.body.json()) as any;
     expect(res.statusCode).toBe(200);
     expect(data.uid).toBe("user_123");
+  });
+
+  it("should support functional transformers in @Param (number)", async () => {
+    const res = await request(`${baseUrl}/poly/param-number/123`);
+    const data = (await res.body.json()) as any;
+    expect(res.statusCode).toBe(200);
+    expect(data.id).toBe(123);
+    expect(data.type).toBe("number");
   });
 
   it("should support functional transformers in @Headers", async () => {

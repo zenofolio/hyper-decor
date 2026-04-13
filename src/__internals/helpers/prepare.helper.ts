@@ -321,7 +321,7 @@ async function prepareImportsInternal(
   log: (space: keyof LogSpaces, message: string) => void
 ): Promise<void> {
   await Promise.all(imports.map(async (item) => {
-    let token: InjectionToken;
+    let token: any;
     if (typeof item === "function") {
       token = item;
       if (!container.isRegistered(token)) container.register(token, token as Constructor);
@@ -333,7 +333,7 @@ async function prepareImportsInternal(
       else if (obj.useFactory) container.register(token, { useFactory: obj.useFactory } as any);
       else if (obj.useToken) container.register(token, { useToken: obj.useToken } as any);
     } else {
-      token = item as InjectionToken;
+      token = item as any;
     }
 
     const instance = container.resolve(token) as any;

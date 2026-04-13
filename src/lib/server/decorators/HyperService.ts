@@ -5,7 +5,7 @@ import { Constructor } from "./types";
 
 interface ServiceDecoratorOptions {
   singleton?: boolean;
-  token?: string | symbol;
+  token?: string | symbol | Constructor | (abstract new (...args: any[]) => any);
 }
 
 /**
