@@ -109,6 +109,48 @@ async create(@Body(CreateUserDto) data: CreateUserDto) { ... }
 
 ---
 
+## Testing
+
+`@zenofolio/hyper-decor` incluye una utilidad potente y fácil de usar inspirada en NestJS para facilitar el testing de servicios, módulos y controladores.
+
+### HyperTest
+La clase `HyperTest` permite crear entornos de prueba aislados con soporte completo para el ciclo de vida `onInit` de forma recursiva.
+
+#### 1. Bootstrap de una línea (Simplicidad total)
+Ideal para pruebas rápidas de integración de una aplicación, módulo o servicio.
+```typescript
+import { HyperTest } from "@zenofolio/hyper-decor";
+
+const module = await HyperTest.create(AppModule);
+const service = await module.get(MyService);
+```
+
+#### 2. Sobrescritura de Proveedores (Mocks)
+Puedes reemplazar dependencias fácilmente usando el API de construcción (builder).
+```typescript
+const module = await HyperTest.createTestingModule({
+    imports: [AppModule]
+})
+.overrideProvider(AuthService).useValue(mockAuth)
+.compile();
+
+const service = module.get(AuthService);
+const app = await module.createHyperApplication();
+```
+
+#### 3. Soporte para Clases Abstractas e Inyección Profunda
+El sistema soporta la resolución de implementaciones a través de clases abstractas como tokens y garantiza que todo el árbol de dependencias ejecute su `onInit` antes de comenzar la prueba.
+
+### Reset del Contenedor
+Para evitar la persistencia de instancias entre tests, `HyperTest` proporciona una utilidad de limpieza.
+```typescript
+beforeEach(() => {
+    HyperTest.reset();
+});
+```
+
+---
+
 ## Licencia
 
 MIT
