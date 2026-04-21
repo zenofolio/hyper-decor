@@ -1,53 +1,53 @@
 # @zenofolio/hyper-decor
 
-Librería de decoradores de alto rendimiento para [HyperExpress](https://github.com/kartikk221/hyper-express).
+High-performance decorator library for [HyperExpress](https://github.com/kartikk221/hyper-express).
 
-`hyper-decor` proporciona una arquitectura modular y reactiva basada en metadatos para construir APIs y sistemas distribuidos robustos, enfocándose en la eficiencia, el desacoplamiento y la facilidad de prueba.
-
----
-
-## Características Principales
-
-- **Arquitectura Modular**: Divide tu lógica en `HyperApp`, `HyperModule`, `HyperController` y `HyperService`.
-- **Mensajería Reactiva (`@OnMessage`)**: Sistema integrado de Pub/Sub para comunicación entre servicios y procesos.
-- **Transportes Distribuidos**: Soporte nativo para **NATS** y **Redis** con carga diferida (*lazy loading*).
-- **Ruteo Inteligente**: Capacidad de emitir mensajes a múltiples transportes simultáneamente (Broadcast/Bridge) o dirigir la comunicación a un transporte específico.
-- **Ciclo de Vida Extensible**: Hooks de inicialización (`onBeforeInit`, `onAfterInit`) para el control total del árbol de la aplicación.
-- **Integración con OpenAPI**: Generación automática de especificaciones OpenAPI 3.0 basada en clases y decoradores.
-- **Inyección de Dependencias**: Resolución profunda de dependencias mediante `tsyringe`.
-- **Manejo de Archivos Stream-based**: Validación y procesamiento de subidas mediante streams para máxima eficiencia.
+`hyper-decor` provides a modular, reactive architecture based on metadata for building robust APIs and distributed systems, focusing on efficiency, decoupling, and testability.
 
 ---
 
-## Instalación
+## Key Features
+
+- **Modular Architecture**: Organize your logic into `HyperApp`, `HyperModule`, `HyperController`, and `HyperService`.
+- **Reactive Messaging (`@OnMessage`)**: Integrated Pub/Sub system for cross-service and cross-process communication.
+- **Distributed Transports**: Native support for **NATS** and **Redis** with lazy loading.
+- **Smart Routing**: Capability to emit messages to multiple transports simultaneously (Broadcast/Bridge) or target a specific transport.
+- **Extensible Lifecycle**: Initialization hooks (`onBeforeInit`, `onAfterInit`) for full control over the application tree.
+- **OpenAPI Integration**: Automatic generation of OpenAPI 3.0 specifications based on classes and decorators.
+- **Dependency Injection**: Deep dependency resolution powered by `tsyringe`.
+- **Stream-based File Handling**: Efficient file upload validation and processing using streams.
+
+---
+
+## Installation
 
 ```bash
 npm install @zenofolio/hyper-decor
-# Dependencias opcionales para transportes distribuidos
+# Optional dependencies for distributed transports
 npm install nats ioredis
 ```
 
 ---
 
-## Mensajería Distribuida
+## Distributed Messaging
 
-`hyper-decor` facilita la creación de sistemas distribuidos o arquitecturas basadas en eventos sin configuración compleja.
+`hyper-decor` makes it easy to create distributed systems or event-driven architectures without complex configuration.
 
-### Escuchar Mensajes
-Utiliza el decorador `@OnMessage` en cualquier `HyperService`.
+### Listening to Messages
+Use the `@OnMessage` decorator on any `HyperService`.
 
 ```typescript
 @HyperService()
 class NotificationService {
   @OnMessage("user.registered")
   async onUserRegistered(data: UserData) {
-    console.log(`Notificando a: ${data.email}`);
+    console.log(`Notifying: ${data.email}`);
   }
 }
 ```
 
-### Configurar Transportes
-Puedes registrar múltiples transportes en tu `HyperApp`.
+### Configuring Transports
+You can register multiple transports in your `HyperApp`.
 
 ```typescript
 import { HyperApp, NatsTransport, RedisTransport } from "@zenofolio/hyper-decor";
@@ -62,45 +62,45 @@ import { HyperApp, NatsTransport, RedisTransport } from "@zenofolio/hyper-decor"
 class Application {}
 ```
 
-### Emisión y Ruteo
-El `MessageBus` permite enviar mensajes a través de todos los transportes o de uno específico.
+### Emission and Routing
+The `MessageBus` allows sending messages through all transports or a specific one.
 
 ```typescript
 import { MessageBus } from "@zenofolio/hyper-decor";
 
-// Envía a NATS, Redis e Interno simultáneamente (Broadcast)
+// Sends to NATS, Redis, and Internal simultaneously (Broadcast)
 await MessageBus.emit("user.registered", { id: 1, email: "test@test.com" });
 
-// Envía solo por NATS (Direccionamiento específico)
+// Sends ONLY via NATS (Targeted routing)
 await MessageBus.emit("user.registered", data, { transport: 'nats' });
 ```
 
 ---
 
-## Hooks de Ciclo de Vida
+## Lifecycle Hooks
 
-Los servicios y módulos pueden reaccionar a diferentes estados de la inicialización de la aplicación.
+Services and modules can react to different stages of application initialization.
 
 ```typescript
 @HyperService()
 class CacheService {
   async onBeforeInit() {
-    // Se ejecuta antes de que las rutas se registren
-    console.log("Conectando a base de datos...");
+    // Runs before routes are registered
+    console.log("Connecting to database...");
   }
 
   async onAfterInit() {
-    // Se ejecuta cuando todo el árbol (incluyendo módulos hijos) está listo
-    console.log("Sistema cache sincronizado.");
+    // Runs when the entire tree (including child modules) is ready
+    console.log("Cache system synchronized.");
   }
 }
 ```
 
 ---
 
-## Testing con `HyperTest`
+## Testing with `HyperTest`
 
-Utilidad inspirada en NestJS para facilitar pruebas unitarias y de integración de forma aislada.
+A NestJS-inspired utility to facilitate isolated unit and integration testing.
 
 ```typescript
 import { HyperTest } from "@zenofolio/hyper-decor";
@@ -116,7 +116,7 @@ const service = module.get(MyService);
 
 ---
 
-## Subida de Archivos (`@File`)
+## File Upload (`@File`)
 
 ```typescript
 @Post("/upload")
@@ -132,6 +132,6 @@ async upload(
 
 ---
 
-## Licencia
+## License
 
 MIT
