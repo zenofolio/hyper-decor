@@ -16,6 +16,7 @@ High-performance decorator library for [HyperExpress](https://github.com/kartikk
 - **OpenAPI Integration**: Automatic generation of OpenAPI 3.0 specifications based on classes and decorators.
 - **Dependency Injection**: Deep dependency resolution powered by `tsyringe`.
 - **Stream-based File Handling**: Efficient file upload validation and processing using streams.
+- **Observability & Logging**: Standardized `ILogger` interface for monitoring connections, message flow, and errors.
 
 ---
 
@@ -74,6 +75,53 @@ await MessageBus.emit("user.registered", { id: 1, email: "test@test.com" });
 // Sends ONLY via NATS (Targeted routing)
 await MessageBus.emit("user.registered", data, { transport: 'nats' });
 ```
+
+---
+
+## Observability & Logging
+
+`hyper-decor` includes a flexible logging system to monitor the behavior of your transports and messaging system.
+
+### Standard Logger Interface
+
+The library uses a standard `ILogger` interface. By default, it uses an internal logger that outputs to the console with clear prefixes like `[HYPER-INFO]`, `[HYPER-DEBUG]`.
+
+```typescript
+export interface ILogger {
+  info(message: string, ...context: any[]): void;
+  warn(message: string, ...context: any[]): void;
+  error(message: string, ...context: any[]): void;
+  debug(message: string, ...context: any[]): void;
+}
+```
+
+### Customizing the Logger
+
+You can provide a custom logger instance to any transport constructor:
+
+```typescript
+const myLogger = {
+  info: (msg) => console.log(`MyLog: ${msg}`),
+  error: (msg, err) => console.error(`Error: ${msg}`, err),
+  // ... rest of the methods
+};
+
+const nats = new NatsTransport({ servers: "nats://localhost:4222" }, myLogger);
+```
+
+Or register a global logger in the `tsyringe` container using the `LOGGER_TOKEN`:
+
+```typescript
+import { container } from "tsyringe";
+import { LOGGER_TOKEN } from "@zenofolio/hyper-decor";
+
+container.register(LOGGER_TOKEN, { useValue: myLogger });
+```
+
+### Log Levels
+- **INFO**: Connection established, subscriptions activated.
+- **DEBUG**: Message received/emitted (includes topic name).
+- **ERROR**: Handling errors, connection failures, parsing errors.
 
 ---
 

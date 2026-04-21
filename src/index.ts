@@ -1,3 +1,4 @@
+import "reflect-metadata";
 export * from "hyper-express";
 export * from "tsyringe";
 import "./extension";

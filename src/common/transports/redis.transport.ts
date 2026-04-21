@@ -1,7 +1,7 @@
-import { singleton } from "tsyringe";
+import { singleton, inject } from "tsyringe";
 import { IMessageTransport, IMessageOptions, IMessageEmitOptions } from "../transport";
 import type { Redis, RedisOptions } from "ioredis";
-import { ILogger, InternalLogger } from "../logger";
+import { ILogger, InternalLogger, LOGGER_TOKEN } from "../logger";
 
 @singleton()
 export class RedisTransport implements IMessageTransport {
@@ -14,7 +14,10 @@ export class RedisTransport implements IMessageTransport {
 
   private clientsPromise: Promise<{ pub: Redis; sub: Redis }> | null = null;
 
-  constructor(options?: RedisOptions, logger?: ILogger) {
+  constructor(
+    options?: RedisOptions,
+    @inject(LOGGER_TOKEN) logger?: any
+  ) {
     this.options = options || { host: "localhost", port: 6379 };
     this.logger = logger || new InternalLogger();
   }

@@ -1,7 +1,7 @@
-import { singleton, injectable } from "tsyringe";
+import { singleton, injectable, inject } from "tsyringe";
 import { IMessageTransport, IMessageOptions } from "../transport";
 import type { NatsConnection, Codec, Subscription, ConnectionOptions, PublishOptions } from "nats";
-import { ILogger, InternalLogger } from "../logger";
+import { ILogger, InternalLogger, LOGGER_TOKEN } from "../logger";
 
 export interface NatsTransportOptions extends ConnectionOptions {
   codec?: Codec<any>;
@@ -19,9 +19,12 @@ export class NatsTransport implements IMessageTransport {
   private connectionPromise: Promise<NatsConnection> | null = null;
   private logger: ILogger;
 
-  constructor(options?: NatsTransportOptions) {
+  constructor(
+    options?: NatsTransportOptions,
+    @inject(LOGGER_TOKEN) logger?: any
+  ) {
     this.options = options || { servers: "nats://localhost:4222" };
-    this.logger = options?.logger || new InternalLogger();
+    this.logger = logger || options?.logger || new InternalLogger();
   }
 
   private async getConnection(): Promise<NatsConnection> {

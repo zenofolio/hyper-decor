@@ -1,6 +1,6 @@
-import { singleton } from "tsyringe";
+import { singleton, inject } from "tsyringe";
 import { EventEmitter } from "eventemitter3";
-import { ILogger, InternalLogger } from "./logger";
+import { ILogger, InternalLogger, LOGGER_TOKEN } from "./logger";
 
 export interface IMessageOptions {
   concurrency?: number;
@@ -26,7 +26,7 @@ export class InternalTransport implements IMessageTransport {
   private wildcardHandlers: { pattern: RegExp; handler: (data: any) => Promise<void> | void }[] = [];
   private logger: ILogger;
 
-  constructor(logger?: ILogger) {
+  constructor(@inject(LOGGER_TOKEN) logger?: any) {
     this.logger = logger || new InternalLogger();
   }
 

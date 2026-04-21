@@ -7,6 +7,12 @@ import { HyperMeta } from "../__internals/stores";
 import { prepareApplication } from "../__internals/helpers/prepare.helper";
 import { transformRegistry } from "../__internals/transform/transform.registry";
 import { LogSpaces } from "../lib/server/decorators/types";
+import { LOGGER_TOKEN, InternalLogger } from "./logger";
+
+// Register default logger
+if (!container.isRegistered(LOGGER_TOKEN)) {
+  container.register(LOGGER_TOKEN, { useClass: InternalLogger });
+}
 
 /**
  * Creates a new HyperApplication.

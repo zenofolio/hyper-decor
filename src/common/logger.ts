@@ -1,6 +1,6 @@
 import { singleton } from "tsyringe";
 
-export const LOGGER_TOKEN = Symbol("ILogger");
+export const LOGGER_TOKEN = "ILogger";
 
 export interface ILogger {
   info(message: string, ...context: any[]): void;
