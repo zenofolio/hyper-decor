@@ -1,5 +1,6 @@
 import { singleton } from "tsyringe";
 import { EventEmitter } from "eventemitter3";
+import { ILogger, InternalLogger } from "./logger";
 
 export interface IMessageOptions {
   concurrency?: number;
@@ -23,8 +24,14 @@ export class InternalTransport implements IMessageTransport {
   readonly name = "internal";
   private emitter = new EventEmitter();
   private wildcardHandlers: { pattern: RegExp; handler: (data: any) => Promise<void> | void }[] = [];
+  private logger: ILogger;
+
+  constructor(logger?: ILogger) {
+    this.logger = logger || new InternalLogger();
+  }
 
   async listen(topic: string, handler: (data: any) => Promise<void> | void, options?: IMessageOptions): Promise<void> {
+    this.logger.debug(`[InternalTransport] Listening on topic: ${topic}`);
     if (topic.includes("*")) {
       const patternString = topic
         .replace(/[+?^${}()|[\]\\]/g, "\\$&")
@@ -40,6 +47,7 @@ export class InternalTransport implements IMessageTransport {
   }
 
   async emit(topic: string, data: any, options?: IMessageEmitOptions): Promise<void> {
+    this.logger.debug(`[InternalTransport] Emitting on topic: ${topic}`);
     // 1. Regular emit
     this.emitter.emit(topic, data);
 
