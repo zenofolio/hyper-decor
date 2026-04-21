@@ -1,6 +1,6 @@
 {
   "name": "@zenofolio/hyper-decor",
-  "version": "1.0.76",
+  "version": "1.0.82",
   "description": "Project core with utilities and features",
   "main": "dist/index.js",
   "author": "zenozaga",
@@ -21,12 +21,19 @@
     "publish": "npm run build && npm publish --access public"
   },
   "peerDependencies": {
-    "hyper-express": "^6.17.3"
+    "hyper-express": "^6.17.3",
+    "ioredis": "^5.10.1",
+    "nats": "^2.29.3"
   },
   "devDependencies": {
     "@types/file-type": "10.6.0",
+    "@types/node": "^25.6.0",
     "@vitest/ui": "^4.0.18",
+    "ioredis": "^5.10.1",
+    "nats": "^2.29.3",
     "nodemon": "3.1.7",
+    "ts-node": "^10.9.2",
+    "tsx": "^4.21.0",
     "typescript": "5.6.2",
     "undici": "^7.24.0",
     "unplugin-swc": "^1.5.9",
@@ -40,6 +47,14 @@
     "reflect-metadata": "^0.2.2",
     "ts-type": "^3.0.8",
     "tsyringe": "^4.8.0"
+  },
+  "peerDependenciesMeta": {
+    "ioredis": {
+      "optional": true
+    },
+    "nats": {
+      "optional": true
+    }
   },
   "exports": {
     ".": {
@@ -66,6 +81,10 @@
     "./extension": {
       "node": "./dist/extension.js",
       "default": "./src/extension.ts"
+    },
+    "./testing": {
+      "node": "./dist/common/testing.js",
+      "default": "./src/common/testing.ts"
     },
     "./openapi": {
       "node": "./dist/lib/openapi/index.js",

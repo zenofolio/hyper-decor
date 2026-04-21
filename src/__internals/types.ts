@@ -30,6 +30,8 @@ export type HyperCommonMetadata =
   | (HyperControllerMetadata & HyperBaseCommon & { type: 'controller' })
   | (HyperBaseCommon & { type: 'service' });
 
+import { IMessageOptions } from "../common/transport";
+
 /**
  * 📡 Hierarchical Metadata Structure for Methods
  */
@@ -39,7 +41,7 @@ export interface HyperMethodMetadata {
   middlewares?: MiddlewareType[];
   scopes?: ScopeType[];
   roles?: RoleType[];
-  onMessage?: { topic: string };
+  onMessage?: { topic: string, options?: IMessageOptions };
   output?: unknown; // Can be a schema (Zod/Class/String)
   reflection?: {
     params?: (Constructor | Function)[];

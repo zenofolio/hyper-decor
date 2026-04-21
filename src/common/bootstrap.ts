@@ -1,5 +1,6 @@
 import { container } from "tsyringe";
 import { MessageBus } from "./message-bus";
+import { IMessageEmitOptions } from "./transport";
 import { IHyperApp, IHyperApplication } from "../type";
 import { HyperCommonMetadata } from "../__internals/types";
 import { HyperMeta } from "../__internals/stores";
@@ -42,9 +43,9 @@ export async function createApplication<T extends IHyperApplication>(
         };
       }
       if (prop === "emit") {
-        return async (topic: string, data: any) => {
+        return async (topic: string, data: any, options?: IMessageEmitOptions) => {
           const bus = container.resolve(MessageBus);
-          await bus.emit(topic, data);
+          await bus.emit(topic, data, options);
         };
       }
 

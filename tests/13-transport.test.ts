@@ -14,10 +14,11 @@ const delay = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
 // 1. Mock Transport Implementation
 class MockTransport implements IMessageTransport {
+  name: string = "mock";
   public lastEmitted: { topic: string, data: any } | null = null;
   public handlers: Map<string, Function[]> = new Map();
 
-  async emit(topic: string, data: any): Promise<void> {
+  async emit(topic: string, data: any, options?: any): Promise<void> {
     this.lastEmitted = { topic, data };
 
     // Simulate network delay or bridge behavior
@@ -25,7 +26,7 @@ class MockTransport implements IMessageTransport {
     listeners.forEach(h => h(data));
   }
 
-  async listen(topic: string, handler: (data: any) => Promise<void> | void): Promise<void> {
+  async listen(topic: string, handler: (data: any) => Promise<void> | void, options?: any): Promise<void> {
     const listeners = this.handlers.get(topic) || [];
     listeners.push(handler);
     this.handlers.set(topic, listeners);
@@ -66,7 +67,7 @@ describe("Transport Extensibility", () => {
 
     // Verify: The framework should have called 'listen' on our transport
     // during bootstrap because of the @OnMessage decorator.
-    expect(listenSpy).toHaveBeenCalledWith("custom.event", expect.any(Function));
+    expect(listenSpy).toHaveBeenCalledWith("custom.event", expect.any(Function), undefined);
 
     // Test: Emit via the app, should trigger transport.emit
     await app.emit("external.topic", { hello: "world" });

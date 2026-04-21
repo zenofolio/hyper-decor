@@ -9,19 +9,31 @@ export class MessageBus {
     this.transports.push(transport);
   }
 
-  async emit(topic: string, data: any): Promise<void> {
-    await Promise.all(this.transports.map((t) => t.emit(topic, data)));
+  async emit(topic: string, data: any, options?: any): Promise<void> {
+    const targets = options?.transport
+      ? this.transports.filter((t) => t.name === options.transport)
+      : this.transports;
+
+    await Promise.all(targets.map((t) => t.emit(topic, data, options)));
   }
 
-  async listen(topic: string, handler: (data: any) => Promise<void> | void): Promise<void> {
-    await Promise.all(this.transports.map((t) => t.listen(topic, handler)));
+  async listen(
+    topic: string,
+    handler: (data: any) => Promise<void> | void,
+    options?: any
+  ): Promise<void> {
+    const targets = options?.transport
+      ? this.transports.filter((t) => t.name === options.transport)
+      : this.transports;
+
+    await Promise.all(targets.map((t) => t.listen(topic, handler, options)));
   }
 
   /**
    * Static helper to emit messages without resolving the bus manually.
    */
-  static async emit(topic: string, data: any): Promise<void> {
+  static async emit(topic: string, data: any, options?: any): Promise<void> {
     const bus = container.resolve(MessageBus);
-    await bus.emit(topic, data);
+    await bus.emit(topic, data, options);
   }
 }

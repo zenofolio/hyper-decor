@@ -12,6 +12,8 @@ export * from "./__internals/stores";
 export * from "./__internals/types";
 export * from "./common/transport";
 export * from "./common/message-bus";
+export * from "./common/transports/nats.transport";
+export * from "./common/transports/redis.transport";
 export * from "./__internals/transform/transform.registry";
 export * from "./lib/openapi";
 export * from "./common/testing";

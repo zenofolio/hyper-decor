@@ -141,7 +141,7 @@ export async function registerInstanceHandlers(
     if (methodMeta.onMessage) {
       await bus.listen(methodMeta.onMessage.topic, async (data) => {
         return await (instance as any)[propertyKey].call(instance, data);
-      });
+      }, methodMeta.onMessage.options);
       log("messaging", `${namespace}/${propertyKey} -> ${methodMeta.onMessage.topic}`);
     }
   }

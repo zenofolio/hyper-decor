@@ -1,17 +1,21 @@
 # @zenofolio/hyper-decor
 
-Librería de decoradores para [HyperExpress](https://github.com/kartikk221/hyper-express).
+Librería de decoradores de alto rendimiento para [HyperExpress](https://github.com/kartikk221/hyper-express).
 
-Este paquete proporciona una capa de abstracción basada en decoradores para facilitar el desarrollo de APIs con HyperExpress, enfocándose en la composición de resolutores para el manejo de parámetros y validación.
+`hyper-decor` proporciona una arquitectura modular y reactiva basada en metadatos para construir APIs y sistemas distribuidos robustos, enfocándose en la eficiencia, el desacoplamiento y la facilidad de prueba.
 
 ---
 
-## Características
+## Características Principales
 
-- **Arquitectura de Composición**: La resolución de parámetros, validación de DTOs y transformaciones se calculan durante la inicialización para minimizar la lógica en el flujo de peticiones.
-- **Manejo de Archivos (`@File`)**: Implementación basada en streams para la validación de tamaño y tipo de archivos durante la subida.
-- **Decoradores Polimórficos**: Soporte para diferentes tipos de argumentos en decoradores de parámetros.
-- **Integración con OpenAPI**: Soporte básico para la generación de esquemas OpenAPI 3.0.
+- **Arquitectura Modular**: Divide tu lógica en `HyperApp`, `HyperModule`, `HyperController` y `HyperService`.
+- **Mensajería Reactiva (`@OnMessage`)**: Sistema integrado de Pub/Sub para comunicación entre servicios y procesos.
+- **Transportes Distribuidos**: Soporte nativo para **NATS** y **Redis** con carga diferida (*lazy loading*).
+- **Ruteo Inteligente**: Capacidad de emitir mensajes a múltiples transportes simultáneamente (Broadcast/Bridge) o dirigir la comunicación a un transporte específico.
+- **Ciclo de Vida Extensible**: Hooks de inicialización (`onBeforeInit`, `onAfterInit`) para el control total del árbol de la aplicación.
+- **Integración con OpenAPI**: Generación automática de especificaciones OpenAPI 3.0 basada en clases y decoradores.
+- **Inyección de Dependencias**: Resolución profunda de dependencias mediante `tsyringe`.
+- **Manejo de Archivos Stream-based**: Validación y procesamiento de subidas mediante streams para máxima eficiencia.
 
 ---
 
@@ -19,134 +23,111 @@ Este paquete proporciona una capa de abstracción basada en decoradores para fac
 
 ```bash
 npm install @zenofolio/hyper-decor
+# Dependencias opcionales para transportes distribuidos
+npm install nats ioredis
 ```
 
 ---
 
-## Uso
+## Mensajería Distribuida
 
-### Definición de Aplicación
+`hyper-decor` facilita la creación de sistemas distribuidos o arquitecturas basadas en eventos sin configuración compleja.
+
+### Escuchar Mensajes
+Utiliza el decorador `@OnMessage` en cualquier `HyperService`.
+
 ```typescript
-import { HyperApp, createApplication } from "@zenofolio/hyper-decor";
+@HyperService()
+class NotificationService {
+  @OnMessage("user.registered")
+  async onUserRegistered(data: UserData) {
+    console.log(`Notificando a: ${data.email}`);
+  }
+}
+```
+
+### Configurar Transportes
+Puedes registrar múltiples transportes en tu `HyperApp`.
+
+```typescript
+import { HyperApp, NatsTransport, RedisTransport } from "@zenofolio/hyper-decor";
 
 @HyperApp({
   modules: [UserModule],
-  prefix: "/api"
+  transports: [
+    new NatsTransport({ servers: "nats://localhost:4222" }),
+    new RedisTransport({ host: "localhost", port: 6379 })
+  ]
 })
 class Application {}
-
-const app = await createApplication(Application);
-await app.listen(3000);
 ```
 
-### Decoradores de Parámetros
-Los decoradores `@Body`, `@Query`, `@Param` y `@Headers` permiten diferentes formas de uso.
+### Emisión y Ruteo
+El `MessageBus` permite enviar mensajes a través de todos los transportes o de uno específico.
 
 ```typescript
-@HyperController("/users")
-class UserController {
-  
-  // 1. Validación con DTO
-  @Post("/")
-  async create(@Body(CreateUserDto) user: CreateUserDto) {
-    return user;
+import { MessageBus } from "@zenofolio/hyper-decor";
+
+// Envía a NATS, Redis e Interno simultáneamente (Broadcast)
+await MessageBus.emit("user.registered", { id: 1, email: "test@test.com" });
+
+// Envía solo por NATS (Direccionamiento específico)
+await MessageBus.emit("user.registered", data, { transport: 'nats' });
+```
+
+---
+
+## Hooks de Ciclo de Vida
+
+Los servicios y módulos pueden reaccionar a diferentes estados de la inicialización de la aplicación.
+
+```typescript
+@HyperService()
+class CacheService {
+  async onBeforeInit() {
+    // Se ejecuta antes de que las rutas se registren
+    console.log("Conectando a base de datos...");
   }
 
-  // 2. Extracción por clave y transformación funcional
-  @Get("/:id")
-  async findOne(@Param("id", v => parseInt(v)) id: number) {
-    return { id };
-  }
-
-  // 3. Extracción de propiedad anidada con DTO
-  @Post("/settings")
-  async updateSettings(@Body("settings", SettingsDto) data: SettingsDto) {
-    return data;
-  }
-
-  // 4. Extractores básicos
-  @Get("/")
-  async list(@Query() allQuery: any, @Req req: any) {
-    return allQuery;
+  async onAfterInit() {
+    // Se ejecuta cuando todo el árbol (incluyendo módulos hijos) está listo
+    console.log("Sistema cache sincronizado.");
   }
 }
+```
+
+---
+
+## Testing con `HyperTest`
+
+Utilidad inspirada en NestJS para facilitar pruebas unitarias y de integración de forma aislada.
+
+```typescript
+import { HyperTest } from "@zenofolio/hyper-decor";
+
+const module = await HyperTest.createTestingModule({
+    imports: [AppModule]
+})
+.overrideProvider(DatabaseService).useValue(mockDb)
+.compile();
+
+const service = module.get(MyService);
 ```
 
 ---
 
 ## Subida de Archivos (`@File`)
 
-El decorador `@File` permite manejar la subida de archivos validando el tamaño y tipo (MIME) mediante streams.
-
 ```typescript
 @Post("/upload")
 async upload(
   @File("avatar", {
     maxFileSize: 5 * 1024 * 1024,
-    allowedExtensions: ["png", "jpg"],
-    allowedMimeTypes: ["image/png", "image/jpeg"]
+    allowedExtensions: ["png", "jpg"]
   }) file: UploadedFile
 ) {
-  return { filename: file.filename, size: file.size };
+  return { filename: file.filename };
 }
-```
-
----
-
-## OpenAPI y DTOs
-
-Es posible utilizar clases para definir los esquemas de datos que se reflejarán en la documentación OpenAPI generada.
-
-```typescript
-class CreateUserDto {
-  age: number;
-  name: string;
-}
-
-@Post("/")
-async create(@Body(CreateUserDto) data: CreateUserDto) { ... }
-```
-
----
-
-## Testing
-
-`@zenofolio/hyper-decor` incluye una utilidad potente y fácil de usar inspirada en NestJS para facilitar el testing de servicios, módulos y controladores.
-
-### HyperTest
-La clase `HyperTest` permite crear entornos de prueba aislados con soporte completo para el ciclo de vida `onInit` de forma recursiva.
-
-#### 1. Bootstrap de una línea (Simplicidad total)
-Ideal para pruebas rápidas de integración de una aplicación, módulo o servicio.
-```typescript
-import { HyperTest } from "@zenofolio/hyper-decor";
-
-const module = await HyperTest.create(AppModule);
-const service = await module.get(MyService);
-```
-
-#### 2. Sobrescritura de Proveedores (Mocks)
-Puedes reemplazar dependencias fácilmente usando el API de construcción (builder).
-```typescript
-const module = await HyperTest.createTestingModule({
-    imports: [AppModule]
-})
-.overrideProvider(AuthService).useValue(mockAuth)
-.compile();
-
-const service = module.get(AuthService);
-const app = await module.createHyperApplication();
-```
-
-#### 3. Soporte para Clases Abstractas e Inyección Profunda
-El sistema soporta la resolución de implementaciones a través de clases abstractas como tokens y garantiza que todo el árbol de dependencias ejecute su `onInit` antes de comenzar la prueba.
-
-### Reset del Contenedor
-Para evitar la persistencia de instancias entre tests, `HyperTest` proporciona una utilidad de limpieza.
-```typescript
-beforeEach(() => {
-    HyperTest.reset();
-});
 ```
 
 ---
