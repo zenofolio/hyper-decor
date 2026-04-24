@@ -35,20 +35,39 @@ npm install nats ioredis
 `hyper-decor` makes it easy to create distributed systems or event-driven architectures without complex configuration.
 
 ### Listening to Messages
-Use the `@OnMessage` decorator on any `HyperService`.
+Use the `@OnMessage` decorator on any `HyperService`. You can also inject transport-specific configurations using dedicated decorators.
 
 ```typescript
 @HyperService()
 class NotificationService {
+  // Standard subscription
   @OnMessage("user.registered")
   async onUserRegistered(data: UserData) {
     console.log(`Notifying: ${data.email}`);
+  }
+
+  // Load-balanced NATS Queue Group
+  @OnMessage("orders.*")
+  @OnNatsOptions({ queue: "workers" })
+  async processOrder(order: any) {
+    // Only one worker in the "workers" group will receive this message
+  }
+
+  // Redis Stream with Consumer Group
+  @OnMessage("analytics.hit")
+  @OnRedisOptions({ stream: { group: "analytics-group", consumer: "worker-1" } })
+  async trackHit(hit: any) {
+    // Durable streaming with acknowledgements
   }
 }
 ```
 
 ### Configuring Transports
-You can register multiple transports in your `HyperApp`.
+`hyper-decor` supports multiple transports out of the box.
+
+*   **NATS**: Supports standard Pub/Sub and **JetStream** (durable streams/consumers).
+*   **Redis**: Supports standard Pub/Sub and **Redis Streams** (with consumer groups).
+*   **Internal**: Ultra-fast, zero-allocation Trie-based router for same-process communication.
 
 ```typescript
 import { HyperApp, NatsTransport, RedisTransport } from "@zenofolio/hyper-decor";
@@ -56,7 +75,10 @@ import { HyperApp, NatsTransport, RedisTransport } from "@zenofolio/hyper-decor"
 @HyperApp({
   modules: [UserModule],
   transports: [
-    new NatsTransport({ servers: "nats://localhost:4222" }),
+    new NatsTransport({ 
+      servers: "nats://localhost:4222",
+      jetstream: true // Enable JetStream features
+    }),
     new RedisTransport({ host: "localhost", port: 6379 })
   ]
 })
@@ -69,11 +91,12 @@ The `MessageBus` allows sending messages through all transports or a specific on
 ```typescript
 import { MessageBus } from "@zenofolio/hyper-decor";
 
-// Sends to NATS, Redis, and Internal simultaneously (Broadcast)
+// Sends to all registered transports (Broadcast/Bridge)
 await MessageBus.emit("user.registered", { id: 1, email: "test@test.com" });
 
-// Sends ONLY via NATS (Targeted routing)
-await MessageBus.emit("user.registered", data, { transport: 'nats' });
+// Targeted routing
+await MessageBus.emit("order.created", data, { transport: 'nats' });
+await MessageBus.emit("urgent.alert", data, { transport: 'redis' });
 ```
 
 ---
