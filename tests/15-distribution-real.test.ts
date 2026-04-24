@@ -46,7 +46,7 @@ describe("Real Distribution Testing (NATS & Redis)", () => {
         it("should balance 10 messages between 2 workers in a queue group", async () => {
             const topic = "nats.dist.test";
             const queue = "test-group";
-            
+
             // 1. Spawn two workers in the same queue group
             await Promise.all([
                 spawnWorker("nats-1", "nats", topic, queue),
@@ -65,7 +65,7 @@ describe("Real Distribution Testing (NATS & Redis)", () => {
             // 2. Emit 10 messages from the test process
             const transport = new NatsTransport({ servers: "nats://localhost:4222" });
             const bus = container.resolve(MessageBus);
-            (bus as any).transports = [transport];
+            bus.registerTransport(transport)
 
             for (let i = 0; i < 10; i++) {
                 await bus.emit(topic, { id: i });
@@ -81,7 +81,7 @@ describe("Real Distribution Testing (NATS & Redis)", () => {
             }, {} as Record<string, number>);
 
             console.log("NATS Distribution Counts:", counts);
-            
+
             // Both workers should have received something
             expect(counts["nats-1"]).toBeGreaterThan(0);
             expect(counts["nats-2"]).toBeGreaterThan(0);
@@ -95,7 +95,7 @@ describe("Real Distribution Testing (NATS & Redis)", () => {
     describe("Redis: Fan-out (Pub/Sub)", () => {
         it("should deliver 1 message to ALL workers (standard Pub/Sub)", async () => {
             const topic = "redis.fanout.test";
-            
+
             // 1. Spawn two workers on the same topic
             await Promise.all([
                 spawnWorker("redis-1", "redis", topic),
@@ -114,7 +114,7 @@ describe("Real Distribution Testing (NATS & Redis)", () => {
             // 2. Emit 1 message
             const transport = new RedisTransport({ host: "localhost", port: 6379 });
             const bus = container.resolve(MessageBus);
-            (bus as any).transports = [transport];
+            bus.registerTransport(transport)
 
             await bus.emit(topic, { hello: "redis" });
 

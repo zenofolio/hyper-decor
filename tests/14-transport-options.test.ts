@@ -8,11 +8,21 @@ import {
   createApplication,
   IMessageTransport,
   MessageBus,
+  ILogger,
 } from "../src";
 import { container } from "tsyringe";
 
 // 1. Mock Transport that tracks options
 class OptionTrackingTransport implements IMessageTransport {
+  name: string = 'tracking';
+  async isConnected(): Promise<boolean> {
+    return true;
+  }
+  async connect(): Promise<void> { }
+  async close(): Promise<void> { }
+  async onInit?(): Promise<any> { }
+
+  setLogger(logger: ILogger): void { throw new Error("Method not implemented."); }
   public lastListenOptions: any = null;
   public lastEmitOptions: any = null;
 
@@ -28,11 +38,11 @@ class OptionTrackingTransport implements IMessageTransport {
 @HyperService()
 class TestService {
   @OnMessage("test.topic", { concurrency: 10, nats: { queue: "test-queue" } })
-  async handle(data: any) {}
+  async handle(data: any) { }
 }
 
 @HyperModule({ imports: [TestService] })
-class TestModule {}
+class TestModule { }
 
 describe("Transport Options and Metadata", () => {
   it("should pass OnMessage options to the transport", async () => {
@@ -42,7 +52,7 @@ describe("Transport Options and Metadata", () => {
       modules: [TestModule],
       transports: [transport]
     })
-    class App {}
+    class App { }
 
     const app = await createApplication(App);
 
@@ -61,13 +71,13 @@ describe("Transport Options and Metadata", () => {
   it("should support module augmentation for options (Type check only behavior)", async () => {
     // This is more of a documentation/compile-time check, but we can verify the object structure
     const options = {
-        concurrency: 5,
-        nats: { queue: "my-queue" }
+      concurrency: 5,
+      nats: { queue: "my-queue" }
     };
-    
+
     // In a real scenario, the user would do:
     // declare module "../src" { interface IMessageOptions { nats: { queue: string } } }
-    
+
     expect(options.nats.queue).toBe("my-queue");
   });
 });

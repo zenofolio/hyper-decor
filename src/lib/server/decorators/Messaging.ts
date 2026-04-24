@@ -3,6 +3,18 @@ import { HyperMeta } from "./metadata";
 import { IMessageOptions } from "../../../common/transport";
 
 /**
+ * 🚀 SetMessageMetadata Decorator
+ * Generic helper to inject metadata into a message handler.
+ */
+export const SetMessageMetadata = (key: string, value: any) => {
+  return (target: any, propertyKey: any) => {
+    HyperMeta.set(target, propertyKey, {
+      [key]: value
+    });
+  };
+};
+
+/**
  * 🚀 OnMessage Decorator
  * Purely injects message subscription metadata into the method.
  * 
@@ -10,9 +22,5 @@ import { IMessageOptions } from "../../../common/transport";
  * @param options Optional subscription options (e.g. concurrency, transport-specific settings)
  */
 export const OnMessage = (topic: string, options?: IMessageOptions) => {
-  return (target: any, propertyKey: any) => {
-    HyperMeta.set(target, propertyKey, {
-      onMessage: { topic, options }
-    });
-  };
+  return SetMessageMetadata("onMessage", { topic, options });
 };

@@ -16,7 +16,7 @@ import { join } from "../utils/path.util";
 import { transformRegistry } from "../transform/transform.registry";
 
 import { MessageBus } from "../../common/message-bus";
-import { InternalTransport } from "../../common/transport";
+import { IMessageTransport, InternalTransport } from "../../common/transport";
 
 import {
   HyperMethodMetadata,
@@ -139,10 +139,21 @@ export async function registerInstanceHandlers(
   for (const propertyKey of Object.keys(methods)) {
     const methodMeta = methods[propertyKey];
     if (methodMeta.onMessage) {
-      await bus.listen(methodMeta.onMessage.topic, async (data) => {
+      const { topic, options = {} } = methodMeta.onMessage;
+      
+      // Generic merge: all metadata on the method is passed as options
+      const finalOptions = {
+        ...options,
+        ...methodMeta
+      };
+      delete (finalOptions as any).onMessage;
+
+      const hasOptions = Object.keys(finalOptions).length > 0;
+
+      await bus.listen(topic, async (data) => {
         return await (instance as any)[propertyKey].call(instance, data);
-      }, methodMeta.onMessage.options);
-      log("messaging", `${namespace}/${propertyKey} -> ${methodMeta.onMessage.topic}`);
+      }, hasOptions ? finalOptions : undefined);
+      log("messaging", `${namespace}/${propertyKey} -> ${topic}`);
     }
   }
 }
@@ -387,7 +398,7 @@ async function prepareController(
 
   await prepareImportsInternal(metadata.imports ?? [], context, log);
   await registerInstanceHandlers(instance, target, context.namespace, log);
-  
+
   applyCommonPipeline(target.name, { use: (...args) => router.use(...args) }, data, log);
 
   await registerRoutes(target, instance, router, context.namespace, log);
@@ -418,10 +429,10 @@ async function prepareModule(
       ensureResolvable(m);
       await prepareModule(
         { target: m, instance: container.resolve(m), metadata: mData },
-        { 
-          parentRouter: router, 
-          namespace: `${context.namespace}/${m.name}`, 
-          prefix: mData.path || "/", 
+        {
+          parentRouter: router,
+          namespace: `${context.namespace}/${m.name}`,
+          prefix: mData.path || "/",
           hooks: context.hooks,
           type: "module",
           target: m
@@ -441,10 +452,10 @@ async function prepareModule(
       ensureResolvable(c);
       await prepareController(
         { target: c, instance: container.resolve(c), metadata: cData },
-        { 
-          parentRouter: router, 
-          namespace: `${context.namespace}/${c.name}`, 
-          prefix: cData.path || "/", 
+        {
+          parentRouter: router,
+          namespace: `${context.namespace}/${c.name}`,
+          prefix: cData.path || "/",
           hooks: context.hooks,
           type: "controller",
           target: c
@@ -463,7 +474,7 @@ export async function prepareApplication(
   log: (space: keyof LogSpaces, message: string) => void
 ): Promise<Server> {
   const appServer = new Server(options.uwsOptions || options.options);
-  
+
   // Register global error handler to properly handle status codes from exceptions
   appServer.set_error_handler((req, res, error) => {
     const status = (error as any).status || 500;
@@ -482,11 +493,15 @@ export async function prepareApplication(
   const transports = options.transports && options.transports.length > 0 ? options.transports : [InternalTransport];
   transports.forEach(t => bus.registerTransport(typeof t === "function" ? container.resolve(t as any) : t));
 
+  await Promise.all((transports as IMessageTransport[]).map(t => {
+    if (t && t.onInit) return t.onInit();
+  }))
+
   const hooks = (options.hooks ? (typeof options.hooks === "function" ? container.resolve(options.hooks as any) : options.hooks) : undefined) as any;
-  const context: MountingContext = { 
-    parentRouter: appServer as any, 
-    namespace: Target.name, 
-    prefix: options.prefix ?? "/", 
+  const context: MountingContext = {
+    parentRouter: appServer as any,
+    namespace: Target.name,
+    prefix: options.prefix ?? "/",
     hooks,
     type: "app",
     target: Target
@@ -494,7 +509,7 @@ export async function prepareApplication(
 
   await prepareImportsInternal(options.imports ?? [], context, log);
   await registerInstanceHandlers(appInstance, Target, context.namespace, log);
-  
+
   applyCommonPipeline(Target.name, { use: (...args) => appServer.use(...args) }, data, log);
 
   // Direct routes on app
@@ -506,10 +521,10 @@ export async function prepareApplication(
       ensureResolvable(m);
       await prepareModule(
         { target: m, instance: container.resolve(m), metadata: mData },
-        { 
-          parentRouter: appServer as any, 
-          namespace: `${Target.name}/${m.name}`, 
-          prefix: join(context.prefix, mData.path || "/"), 
+        {
+          parentRouter: appServer as any,
+          namespace: `${Target.name}/${m.name}`,
+          prefix: join(context.prefix, mData.path || "/"),
           hooks,
           type: "module",
           target: m

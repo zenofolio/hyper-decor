@@ -22,6 +22,8 @@ if (!container.isRegistered(LOGGER_TOKEN)) {
 export async function createApplication<T extends IHyperApplication>(
   application: new (...args: any[]) => T
 ): Promise<IHyperApp<T>> {
+
+
   const metadata = HyperMeta.get(application) as HyperCommonMetadata;
 
 

@@ -1,4 +1,4 @@
-import { singleton, inject, injectable } from "tsyringe";
+import { inject, injectable } from "tsyringe";
 import { ILogger, InternalLogger, LOGGER_TOKEN } from "./logger";
 
 export interface IMessageOptions {
@@ -17,90 +17,60 @@ export interface IMessageTransport {
   listen(topic: string, handler: (data: any) => Promise<any> | void, options?: IMessageOptions): Promise<any>;
   emit(topic: string, data: any, options?: IMessageEmitOptions): Promise<void>;
   isConnected(): Promise<boolean>;
-  connect(): Promise<void>;
   close(): Promise<void>;
   onInit?(): Promise<any>;
+  setLogger(logger: ILogger): void;
 }
 
 export interface IInternalTransportOptions {
-  cacheSize?: number;
-  initialCapacity?: number;
+  maxCacheSize?: number;
   logger?: ILogger;
 }
 
 type Handler = (data: any) => void | Promise<any>;
 
+interface ITrieNode {
+  children: Map<number, ITrieNode>;
+  star?: ITrieNode;
+  greater?: ITrieNode;
+  handlers: Handler[];
+}
+
 @injectable()
-@singleton()
 export class InternalTransport implements IMessageTransport {
   readonly name = "internal";
   private logger: ILogger;
 
-  // --- Arena State ---
-  private arena: Uint32Array;
-  private childMaps: Map<number, number>[] = []; // Now uses pre-hashed segment keys
-  private handlersList: Handler[][] = [];
-  private nodeCount = 0;
-  private readonly root = 0;
+  // --- Object-based Trie ---
+  private root: ITrieNode = this.createNode();
 
-  // --- Epoch System (Lazy Cache Invalidation) ---
-  private epoch = 1;
-
-  // --- Direct-Mapped Cache ---
-  private readonly cacheSize: number;
-  private readonly cacheMask: number;
-  private cacheTags: Uint32Array;
-  private cacheValues: Int32Array;
-  private cacheEpochs: Uint32Array; // Track epoch per entry
-  private cacheTopics: string[];
-  private cacheResults: Handler[][];
+  // --- Two-Map LRU Cache (Fastest in V8) ---
+  private cacheActive: Map<string, Handler[]> = new Map();
+  private cacheOld: Map<string, Handler[]> = new Map();
+  private readonly maxCacheSize: number;
 
   constructor(
-    @inject(LOGGER_TOKEN) logger?: any,
-    options: IInternalTransportOptions = {}
+    @inject(LOGGER_TOKEN) logger?: ILogger,
   ) {
-    this.logger = logger || options.logger || new InternalLogger();
-
-    const requestedCacheSize = options.cacheSize || 4096;
-    this.cacheSize = Math.pow(2, Math.ceil(Math.log2(requestedCacheSize)));
-    this.cacheMask = this.cacheSize - 1;
-
-    this.cacheTags = new Uint32Array(this.cacheSize);
-    this.cacheValues = new Int32Array(this.cacheSize).fill(-1);
-    this.cacheEpochs = new Uint32Array(this.cacheSize);
-    this.cacheTopics = new Array<string>(this.cacheSize);
-    this.cacheResults = new Array<Handler[]>(this.cacheSize);
-
-    const initialCapacity = options.initialCapacity || 10000;
-    this.arena = new Uint32Array(initialCapacity * 4);
-    
-    // @ts-expect-error
-    this.root = this.createNode();
+    this.logger = logger || new InternalLogger();
+    this.maxCacheSize = 2500;
   }
 
-  private createNode(): number {
-    const id = this.nodeCount++;
-    const base = id * 4;
-
-    if (base + 4 > this.arena.length) {
-      const newArena = new Uint32Array(this.arena.length * 2);
-      newArena.set(this.arena);
-      this.arena = newArena;
-    }
-
-    this.arena[base] = this.childMaps.length;
-    this.arena[base + 1] = 4294967295;
-    this.arena[base + 2] = 4294967295;
-    this.arena[base + 3] = this.handlersList.length;
-
-    this.childMaps.push(new Map());
-    this.handlersList.push([]);
-    return id;
+  setLogger(logger: ILogger): void {
+    this.logger = logger;
   }
 
-  /**
-   * Fast 32-bit Hash
-   */
+  onInit(): Promise<any> {
+    return Promise.resolve();
+  }
+
+  private createNode(): ITrieNode {
+    return {
+      children: new Map(),
+      handlers: []
+    };
+  }
+
   private hash(str: string): number {
     let h = 0 | 0;
     const len = str.length;
@@ -110,9 +80,6 @@ export class InternalTransport implements IMessageTransport {
     return h >>> 0;
   }
 
-  /**
-   * Zero-allocation hash for a range of a string
-   */
   private hashRange(str: string, start: number, end: number): number {
     let h = 0 | 0;
     for (let i = start; i < end; i++) {
@@ -145,9 +112,9 @@ export class InternalTransport implements IMessageTransport {
   }
 
   async listen(topic: string, handler: (data: any) => Promise<any> | void, options?: IMessageOptions): Promise<any> {
-    // Lazy invalidation: just bump the epoch
-    this.epoch++;
-    if (this.epoch === 0) this.epoch = 1;
+    // Invalidate caches on new subscription
+    this.cacheActive = new Map();
+    this.cacheOld = new Map();
 
     const paths = this.precompute(topic);
     for (const segments of paths) {
@@ -155,28 +122,26 @@ export class InternalTransport implements IMessageTransport {
     }
   }
 
-  private addSubscription(nodeIdx: number, segments: string[], sIdx: number, handler: Handler) {
+  private addSubscription(node: ITrieNode, segments: string[], sIdx: number, handler: Handler) {
     if (sIdx === segments.length) {
-      this.handlersList[this.arena[nodeIdx * 4 + 3]].push(handler);
+      node.handlers.push(handler);
       return;
     }
 
     const segment = segments[sIdx];
-    const base = nodeIdx * 4;
 
     if (segment === '*') {
-      if (this.arena[base + 1] === 4294967295) this.arena[base + 1] = this.createNode();
-      this.addSubscription(this.arena[base + 1], segments, sIdx + 1, handler);
+      if (!node.star) node.star = this.createNode();
+      this.addSubscription(node.star, segments, sIdx + 1, handler);
     } else if (segment === '>') {
-      if (this.arena[base + 2] === 4294967295) this.arena[base + 2] = this.createNode();
-      this.addSubscription(this.arena[base + 2], segments, sIdx + 1, handler);
+      if (!node.greater) node.greater = this.createNode();
+      this.addSubscription(node.greater, segments, sIdx + 1, handler);
     } else {
       const h = this.hash(segment);
-      const childMap = this.childMaps[this.arena[base]];
-      let next = childMap.get(h);
-      if (next === undefined) {
+      let next = node.children.get(h);
+      if (!next) {
         next = this.createNode();
-        childMap.set(h, next);
+        node.children.set(h, next);
       }
       this.addSubscription(next, segments, sIdx + 1, handler);
     }
@@ -204,76 +169,71 @@ export class InternalTransport implements IMessageTransport {
   }
 
   private match(topic: string): Handler[] {
-    const h = this.hash(topic);
-    const idx = h & this.cacheMask;
+    let handlers = this.cacheActive.get(topic);
+    if (handlers !== undefined) return handlers;
 
-    // Check hit: tag matches AND epoch matches AND topic matches
-    if (this.cacheEpochs[idx] === this.epoch && this.cacheTags[idx] === h && this.cacheTopics[idx] === topic) {
-      return this.cacheResults[idx];
+    handlers = this.cacheOld.get(topic);
+    if (handlers !== undefined) {
+      this.updateCache(topic, handlers);
+      return handlers;
     }
 
-    // Miss Path: Pointer-based Walker (No split)
     const results: Handler[] = [];
     this.recursiveSearch(this.root, topic, 0, results);
 
-    this.cacheTags[idx] = h;
-    this.cacheTopics[idx] = topic;
-    this.cacheEpochs[idx] = this.epoch;
-    this.cacheResults[idx] = results;
-    this.cacheValues[idx] = 1;
-
+    this.updateCache(topic, results);
     return results;
   }
 
-  private recursiveSearch(nodeIdx: number, topic: string, start: number, results: Handler[]) {
-    const base = nodeIdx * 4;
+  private updateCache(topic: string, handlers: Handler[]) {
+    this.cacheActive.set(topic, handlers);
+    if (this.cacheActive.size >= this.maxCacheSize) {
+      this.cacheOld = this.cacheActive;
+      this.cacheActive = new Map();
+    }
+  }
+
+  private recursiveSearch(node: ITrieNode, topic: string, start: number, results: Handler[]) {
     const len = topic.length;
 
-    // Terminal
     if (start > len) {
-      const handlers = this.handlersList[this.arena[base + 3]];
-      if (handlers.length > 0) results.push(...handlers);
+      if (node.handlers.length > 0) results.push(...node.handlers);
       return;
     }
-    
-    // NATS '>' match
-    const greaterIdx = this.arena[base + 2];
-    if (greaterIdx !== 4294967295 && start < len) {
-        results.push(...this.handlersList[this.arena[greaterIdx * 4 + 3]]);
+
+    if (node.greater && start < len) {
+      results.push(...node.greater.handlers);
     }
 
     if (start <= len) {
-        let end = topic.indexOf('.', start);
-        if (end === -1) end = len;
+      let end = topic.indexOf('.', start);
+      if (end === -1) end = len;
 
-        // Exact match
-        const segmentHash = this.hashRange(topic, start, end);
-        const nextIdx = this.childMaps[this.arena[base]].get(segmentHash);
-        if (nextIdx !== undefined) {
-            this.recursiveSearch(nextIdx, topic, end + 1, results);
-        }
+      const h = this.hashRange(topic, start, end);
+      const next = node.children.get(h);
+      if (next) {
+        this.recursiveSearch(next, topic, end + 1, results);
+      }
 
-        // '*' match
-        const starIdx = this.arena[base + 1];
-        if (starIdx !== 4294967295) {
-            this.recursiveSearch(starIdx, topic, end + 1, results);
-        }
-        
-        // Final exact match check (at the end of string)
-        if (end === len) {
-            const handlers = this.handlersList[this.arena[base + 3]];
-            if (handlers.length > 0) results.push(...handlers);
-        }
+      if (node.star) {
+        this.recursiveSearch(node.star, topic, end + 1, results);
+      }
+
+      if (end === len) {
+        if (node.handlers.length > 0) results.push(...node.handlers);
+      }
     }
   }
 
   async isConnected(): Promise<boolean> { return true; }
   async connect(): Promise<void> { return Promise.resolve(); }
   async close(): Promise<void> {
-    this.cacheValues.fill(-1);
-    this.cacheEpochs.fill(0);
-    this.cacheTopics.fill("");
-    this.cacheResults.fill([]);
+    this.cacheActive.clear();
+    this.cacheOld.clear();
     return Promise.resolve();
+  }
+
+  __getCacheSize() {
+    return this.cacheActive.size + this.cacheOld.size;
   }
 }

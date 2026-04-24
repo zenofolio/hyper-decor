@@ -1,7 +1,8 @@
-import { container, singleton } from "tsyringe";
+import { container, singleton, injectable } from "tsyringe";
 import { IMessageTransport } from "./transport";
 
 @singleton()
+@injectable()
 export class MessageBus {
   private transports: IMessageTransport[] = [];
 
