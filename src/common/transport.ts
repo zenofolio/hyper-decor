@@ -36,18 +36,22 @@ export class InternalTransport implements IMessageTransport {
   readonly name = "internal";
   private logger: ILogger;
 
-  // --- High-Performance Router State (Arena + Trie) ---
+  // --- Arena State ---
   private arena: Uint32Array;
-  private childMaps: Map<string, number>[] = [];
+  private childMaps: Map<number, number>[] = []; // Now uses pre-hashed segment keys
   private handlersList: Handler[][] = [];
   private nodeCount = 0;
   private readonly root = 0;
 
-  // --- Configurable Direct-Mapped Cache ---
+  // --- Epoch System (Lazy Cache Invalidation) ---
+  private epoch = 1;
+
+  // --- Direct-Mapped Cache ---
   private readonly cacheSize: number;
   private readonly cacheMask: number;
   private cacheTags: Uint32Array;
   private cacheValues: Int32Array;
+  private cacheEpochs: Uint32Array; // Track epoch per entry
   private cacheTopics: string[];
   private cacheResults: Handler[][];
 
@@ -57,17 +61,16 @@ export class InternalTransport implements IMessageTransport {
   ) {
     this.logger = logger || options.logger || new InternalLogger();
 
-    // Configure Cache Size (Must be power of 2)
     const requestedCacheSize = options.cacheSize || 4096;
     this.cacheSize = Math.pow(2, Math.ceil(Math.log2(requestedCacheSize)));
     this.cacheMask = this.cacheSize - 1;
 
     this.cacheTags = new Uint32Array(this.cacheSize);
     this.cacheValues = new Int32Array(this.cacheSize).fill(-1);
+    this.cacheEpochs = new Uint32Array(this.cacheSize);
     this.cacheTopics = new Array<string>(this.cacheSize);
     this.cacheResults = new Array<Handler[]>(this.cacheSize);
 
-    // Initialize Arena
     const initialCapacity = options.initialCapacity || 10000;
     this.arena = new Uint32Array(initialCapacity * 4);
     
@@ -96,12 +99,23 @@ export class InternalTransport implements IMessageTransport {
   }
 
   /**
-   * Fast 32-bit Hash (FxHash / Java String style)
+   * Fast 32-bit Hash
    */
   private hash(str: string): number {
     let h = 0 | 0;
     const len = str.length;
     for (let i = 0; i < len; i++) {
+      h = (Math.imul(31, h) + str.charCodeAt(i)) | 0;
+    }
+    return h >>> 0;
+  }
+
+  /**
+   * Zero-allocation hash for a range of a string
+   */
+  private hashRange(str: string, start: number, end: number): number {
+    let h = 0 | 0;
+    for (let i = start; i < end; i++) {
       h = (Math.imul(31, h) + str.charCodeAt(i)) | 0;
     }
     return h >>> 0;
@@ -131,8 +145,9 @@ export class InternalTransport implements IMessageTransport {
   }
 
   async listen(topic: string, handler: (data: any) => Promise<any> | void, options?: IMessageOptions): Promise<any> {
-    // Invalidate cache
-    this.cacheValues.fill(-1);
+    // Lazy invalidation: just bump the epoch
+    this.epoch++;
+    if (this.epoch === 0) this.epoch = 1;
 
     const paths = this.precompute(topic);
     for (const segments of paths) {
@@ -156,11 +171,12 @@ export class InternalTransport implements IMessageTransport {
       if (this.arena[base + 2] === 4294967295) this.arena[base + 2] = this.createNode();
       this.addSubscription(this.arena[base + 2], segments, sIdx + 1, handler);
     } else {
+      const h = this.hash(segment);
       const childMap = this.childMaps[this.arena[base]];
-      let next = childMap.get(segment);
+      let next = childMap.get(h);
       if (next === undefined) {
         next = this.createNode();
-        childMap.set(segment, next);
+        childMap.set(h, next);
       }
       this.addSubscription(next, segments, sIdx + 1, handler);
     }
@@ -191,58 +207,71 @@ export class InternalTransport implements IMessageTransport {
     const h = this.hash(topic);
     const idx = h & this.cacheMask;
 
-    if (this.cacheValues[idx] !== -1 && this.cacheTags[idx] === h && this.cacheTopics[idx] === topic) {
+    // Check hit: tag matches AND epoch matches AND topic matches
+    if (this.cacheEpochs[idx] === this.epoch && this.cacheTags[idx] === h && this.cacheTopics[idx] === topic) {
       return this.cacheResults[idx];
     }
 
-    const segments = topic.split('.');
+    // Miss Path: Pointer-based Walker (No split)
     const results: Handler[] = [];
-    this.recursiveSearch(this.root, segments, 0, results);
+    this.recursiveSearch(this.root, topic, 0, results);
 
     this.cacheTags[idx] = h;
     this.cacheTopics[idx] = topic;
-    this.cacheValues[idx] = 1;
+    this.cacheEpochs[idx] = this.epoch;
     this.cacheResults[idx] = results;
+    this.cacheValues[idx] = 1;
 
     return results;
   }
 
-  private recursiveSearch(nodeIdx: number, segments: string[], sIdx: number, results: Handler[]) {
+  private recursiveSearch(nodeIdx: number, topic: string, start: number, results: Handler[]) {
     const base = nodeIdx * 4;
+    const len = topic.length;
 
-    if (sIdx === segments.length) {
+    // Terminal
+    if (start > len) {
       const handlers = this.handlersList[this.arena[base + 3]];
       if (handlers.length > 0) results.push(...handlers);
+      return;
     }
-
+    
+    // NATS '>' match
     const greaterIdx = this.arena[base + 2];
-    if (greaterIdx !== 4294967295) {
-      results.push(...this.handlersList[this.arena[greaterIdx * 4 + 3]]);
+    if (greaterIdx !== 4294967295 && start < len) {
+        results.push(...this.handlersList[this.arena[greaterIdx * 4 + 3]]);
     }
 
-    if (sIdx < segments.length) {
-      const segment = segments[sIdx];
-      const nextIdx = this.childMaps[this.arena[base]].get(segment);
-      if (nextIdx !== undefined) {
-        this.recursiveSearch(nextIdx, segments, sIdx + 1, results);
-      }
-      const starIdx = this.arena[base + 1];
-      if (starIdx !== 4294967295) {
-        this.recursiveSearch(starIdx, segments, sIdx + 1, results);
-      }
+    if (start <= len) {
+        let end = topic.indexOf('.', start);
+        if (end === -1) end = len;
+
+        // Exact match
+        const segmentHash = this.hashRange(topic, start, end);
+        const nextIdx = this.childMaps[this.arena[base]].get(segmentHash);
+        if (nextIdx !== undefined) {
+            this.recursiveSearch(nextIdx, topic, end + 1, results);
+        }
+
+        // '*' match
+        const starIdx = this.arena[base + 1];
+        if (starIdx !== 4294967295) {
+            this.recursiveSearch(starIdx, topic, end + 1, results);
+        }
+        
+        // Final exact match check (at the end of string)
+        if (end === len) {
+            const handlers = this.handlersList[this.arena[base + 3]];
+            if (handlers.length > 0) results.push(...handlers);
+        }
     }
   }
 
-  async isConnected(): Promise<boolean> {
-    return true;
-  }
-
-  async connect(): Promise<void> {
-    return Promise.resolve();
-  }
-
+  async isConnected(): Promise<boolean> { return true; }
+  async connect(): Promise<void> { return Promise.resolve(); }
   async close(): Promise<void> {
     this.cacheValues.fill(-1);
+    this.cacheEpochs.fill(0);
     this.cacheTopics.fill("");
     this.cacheResults.fill([]);
     return Promise.resolve();
