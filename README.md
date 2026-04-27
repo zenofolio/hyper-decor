@@ -232,6 +232,42 @@ class SpeedService {
 
 ---
 
+## Message Envelope (Tracing & Idempotency)
+
+Every message in `hyper-decor` is automatically wrapped in a standardized envelope. This provides built-in support for tracing and reliable delivery without complex configuration.
+
+### The Envelope Structure
+```typescript
+interface IMessageEnvelope<T> {
+  i: string;  // Unique Message ID (UUID)
+  t: number;  // Creation Timestamp
+  c?: string; // Correlation ID (for cross-service tracing)
+  m: T;       // The actual payload
+}
+```
+
+### Transparent Usage
+By default, your handlers receive only the payload, making it compatible with any external message source.
+
+```typescript
+@OnMessage("user.signup")
+async handle(data: UserDto) {
+  // 'data' is the unwrapped payload
+}
+```
+
+### Accessing Metadata
+If you need to access the ID or Timestamp (e.g., for logging or preventing duplicate processing), simply add a second argument:
+
+```typescript
+@OnMessage("critical.payment")
+async handle(data: PaymentDto, envelope: IMessageEnvelope<PaymentDto>) {
+  console.log(`Processing message ${envelope.i} created at ${envelope.t}`);
+}
+```
+
+---
+
 ## Testing with `HyperTest`
 
 A NestJS-inspired utility to facilitate isolated unit and integration testing.
