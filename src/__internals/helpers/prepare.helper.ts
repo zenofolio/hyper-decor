@@ -17,14 +17,13 @@ import { transformRegistry } from "../transform/transform.registry";
 
 import { MessageBus } from "../../common/message-bus";
 import { InternalTransport, IMessageTransport, IMessageInterceptor } from "../../common/transport";
-import { InMemoryIdempotencyStore } from "../../common/idempotency";
+import { IIdempotencyStore, InMemoryIdempotencyStore } from "../../common/idempotency";
 import { IdempotencyInterceptor } from "../../lib/server/interceptors/IdempotencyInterceptor";
 
 import {
   HyperMethodMetadata,
   HyperPrefixRoot,
   HyperCommonMetadata,
-  IHyperAppOptions,
 } from "../types";
 
 import {
@@ -40,6 +39,7 @@ import {
   RoleType,
   RouteMetadata,
   ScopeType,
+  HyperAppMetadata
 } from "../../lib/server/decorators/types";
 
 import { isInitialized, setInitialized } from "./lifecycle.helper";
@@ -749,7 +749,7 @@ export async function prepareApplication(
 
   const appInstance = container.resolve(Target);
   const data = getData(ctx, Target);
-  const metadata = data.metadata as IHyperAppOptions;
+  const metadata = data.metadata as HyperAppMetadata;
 
   // --- 2.5 Message Interceptors & Idempotency ---
   const { interceptor, idempotency } = metadata;
@@ -764,10 +764,12 @@ export async function prepareApplication(
 
     if (!container.isRegistered(storeToken)) {
       const StoreClass = idempotency?.store || InMemoryIdempotencyStore;
-      container.register(storeToken, {
-        useClass: typeof StoreClass === "function" ? StoreClass as Constructor<IIdempotencyStore> : undefined,
-        useValue: typeof StoreClass !== "function" ? StoreClass : undefined
-      });
+
+      if (typeof StoreClass === "function") {
+        container.register(storeToken, { useClass: StoreClass as Constructor<IIdempotencyStore> });
+      } else {
+        container.register(storeToken, { useValue: StoreClass });
+      }
     }
 
     // Default to IdempotencyInterceptor if no custom interceptor provided
@@ -778,8 +780,8 @@ export async function prepareApplication(
 
   // Set custom interceptor if provided
   if (interceptor) {
-    const resolvedInterceptor = typeof interceptor === "function" 
-      ? container.resolve(interceptor as Constructor<IMessageInterceptor>) 
+    const resolvedInterceptor = typeof interceptor === "function"
+      ? container.resolve(interceptor as Constructor<IMessageInterceptor>)
       : interceptor;
     bus.setInterceptor(resolvedInterceptor);
   }

@@ -7,8 +7,7 @@ import {
   Constructor,
   MiddlewareType,
   ScopeType,
-  RoleType,
-  IHyperAppOptions
+  RoleType
 } from "../lib/server/decorators/types";
 
 

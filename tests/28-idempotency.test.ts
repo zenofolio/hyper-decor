@@ -32,9 +32,10 @@ class IdempotentService {
 
 @HyperApp({
   imports: [IdempotentService],
-  transports: [InternalTransport]
+  transports: [InternalTransport],
+  modules: []
 })
-class TestApp {}
+class TestApp { }
 
 describe("Idempotency Interceptor", () => {
   beforeEach(() => {
@@ -44,7 +45,7 @@ describe("Idempotency Interceptor", () => {
   it("should prevent duplicate processing of the same message ID", async () => {
     const app = await createApplication(TestApp);
     const service = container.resolve(IdempotentService);
-    
+
     // 1. First emit
     const key = "unique-op-1";
     await MessageBus.emit("test.idempotent", { data: 1 }, { idempotencyKey: key });
@@ -60,7 +61,7 @@ describe("Idempotency Interceptor", () => {
   it("should allow bypassing idempotency if explicitly disabled in decorator", async () => {
     const app = await createApplication(TestApp);
     const service = container.resolve(IdempotentService);
-    
+
     const key = "bypass-key";
     await MessageBus.emit("test.bypass", {}, { idempotencyKey: key });
     await MessageBus.emit("test.bypass", {}, { idempotencyKey: key });
@@ -75,13 +76,14 @@ describe("Idempotency Interceptor", () => {
     @HyperApp({
       imports: [IdempotentService],
       transports: [InternalTransport],
-      idempotency: { ttl: 50 } 
+      idempotency: { ttl: 50 },
+      modules: []
     })
-    class ShortTtlApp {}
+    class ShortTtlApp { }
 
     const app = await createApplication(ShortTtlApp);
     const service = container.resolve(IdempotentService);
-    
+
     const key = "ttl-key";
     await MessageBus.emit("test.idempotent", {}, { idempotencyKey: key });
     expect(service.callCount).toBe(1);
