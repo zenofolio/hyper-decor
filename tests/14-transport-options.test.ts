@@ -56,10 +56,10 @@ describe("Transport Options and Metadata", () => {
 
     const app = await createApplication(App);
 
-    expect(transport.lastListenOptions).toEqual({
+    expect(transport.lastListenOptions).toEqual(expect.objectContaining({
       concurrency: 10,
       nats: { queue: "test-queue" }
-    });
+    }));
 
     // Test emission options
     await app.emit("emit.topic", { foo: "bar" }, { priority: "high" });

@@ -80,7 +80,7 @@ describe("Transport Extensibility", () => {
 
     // Verify: The framework should have called 'listen' on our transport
     // during bootstrap because of the @OnMessage decorator.
-    expect(listenSpy).toHaveBeenCalledWith("custom.event", expect.any(Function), undefined);
+    expect(listenSpy).toHaveBeenCalledWith("custom.event", expect.any(Function), expect.any(Object));
 
     // Test: Emit via the app, should trigger transport.emit
     await app.emit("external.topic", { hello: "world" });

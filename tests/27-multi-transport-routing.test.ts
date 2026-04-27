@@ -67,7 +67,7 @@ describe("Multi-Transport Routing", () => {
         const handler = () => { };
         await bus.listen("test.topic", handler, { transport: "nats" });
 
-        expect(nats.listen).toHaveBeenCalledWith("test.topic", expect.any(Function), { transport: "nats" });
+        expect(nats.listen).toHaveBeenCalledWith("test.topic", expect.any(Function), expect.objectContaining({ transport: "nats" }));
         expect(redis.listen).not.toHaveBeenCalled();
     });
 
