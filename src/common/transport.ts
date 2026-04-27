@@ -15,7 +15,19 @@ export interface IMessageOptions {
 
 export interface IMessageEmitOptions {
   transport?: Transport | string;
+  correlationId?: string;
   [key: string]: any;
+}
+
+/**
+ * 📦 Message Envelope
+ * Standard wrapper for all messages to provide tracing and idempotency.
+ */
+export interface IMessageEnvelope<T = any> {
+  i: string;  // Message ID
+  c?: string; // Correlation ID
+  t: number;  // Timestamp
+  m: T;       // Payload
 }
 
 export interface IMessageTransport {

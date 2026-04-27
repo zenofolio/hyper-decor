@@ -32,8 +32,8 @@ describe("Multi-Transport Routing", () => {
     it("should emit to ALL transports by default", async () => {
         await bus.emit("test.topic", { foo: "bar" });
         
-        expect(nats.emit).toHaveBeenCalledWith("test.topic", { foo: "bar" }, undefined);
-        expect(redis.emit).toHaveBeenCalledWith("test.topic", { foo: "bar" }, undefined);
+        expect(nats.emit).toHaveBeenCalledWith("test.topic", expect.objectContaining({ m: { foo: "bar" } }), undefined);
+        expect(redis.emit).toHaveBeenCalledWith("test.topic", expect.objectContaining({ m: { foo: "bar" } }), undefined);
     });
 
     it("should emit ONLY to NATS when targeted", async () => {
@@ -54,7 +54,7 @@ describe("Multi-Transport Routing", () => {
         const handler = () => {};
         await bus.listen("test.topic", handler, { transport: "nats" });
         
-        expect(nats.listen).toHaveBeenCalledWith("test.topic", handler, { transport: "nats" });
+        expect(nats.listen).toHaveBeenCalledWith("test.topic", expect.any(Function), { transport: "nats" });
         expect(redis.listen).not.toHaveBeenCalled();
     });
 

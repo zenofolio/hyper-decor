@@ -71,7 +71,8 @@ describe("Transport Extensibility", () => {
 
     // Test: Emit via the app, should trigger transport.emit
     await app.emit("external.topic", { hello: "world" });
-    expect(transport.lastEmitted).toEqual({ topic: "external.topic", data: { hello: "world" } });
+    expect(transport.lastEmitted?.topic).toBe("external.topic");
+    expect(transport.lastEmitted?.data.m).toEqual({ hello: "world" });
     expect(emitSpy).toHaveBeenCalled();
 
     // Test: Trigger the transport manually (simulating external incoming message)

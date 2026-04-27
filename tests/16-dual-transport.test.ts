@@ -91,26 +91,37 @@ describe("Dual Transport Strategy (Functional Test)", () => {
     // This should NOT hit any local listener (since nobody is listening to event.remote via Internal)
     // but should be recorded by the mock transport
     await MessageBus.emit("event.remote", { data: 123 }, { transport: "mock-dist" });
-    expect(service.mockHits).toBe(0); // Hits only when receiving, not emitting
-    expect(mock.receivedEmits).toContainEqual({ topic: "event.remote", data: { data: 123 } });
+    expect(service.mockHits).toBe(0); 
+    
+    // Check envelope
+    expect(mock.receivedEmits[0].topic).toBe("event.remote");
+    expect(mock.receivedEmits[0].data.m).toEqual({ data: 123 });
+    expect(mock.receivedEmits[0].data.i).toBeDefined(); // Message ID
+    expect(mock.receivedEmits[0].data.t).toBeDefined(); // Timestamp
 
     // --- 3. Test incoming from Mock ---
-    // Simulate NATS/Redis receiving a message
-    await mock.simulateIncoming("event.remote", { data: "from-wire" });
+    // Simulate NATS/Redis receiving a message wrapped in an envelope
+    await mock.simulateIncoming("event.remote", { 
+      i: "msg-123", 
+      t: Date.now(), 
+      m: { data: "from-wire" } 
+    });
     expect(service.mockHits).toBe(1);
     expect(service.internalHits).toBe(1); // Should stay at 1
 
     // --- 4. Test broadcast (Internal + Mock) ---
     await MessageBus.emit("event.broadcast", { hello: "world" });
-    expect(service.broadcastHits).toBe(1); // Received via InternalTransport
-    expect(mock.receivedEmits).toContainEqual({ topic: "event.broadcast", data: { hello: "world" } });
+    expect(service.broadcastHits).toBe(1); 
+    
+    const broadcastEmitsToMock = mock.receivedEmits.filter(e => e.topic === "event.broadcast");
+    expect(broadcastEmitsToMock[0].data.m).toEqual({ hello: "world" });
 
     // --- 5. Test emitLocal on a broadcast topic ---
     await MessageBus.emitLocal("event.broadcast", { local: true });
     expect(service.broadcastHits).toBe(2); 
     // Verify it wasn't sent to mock this time
-    const broadcastEmitsToMock = mock.receivedEmits.filter(e => e.topic === "event.broadcast");
-    expect(broadcastEmitsToMock.length).toBe(1); // Still only the one from step 4
+    const broadcastEmitsToMockAgain = mock.receivedEmits.filter(e => e.topic === "event.broadcast");
+    expect(broadcastEmitsToMockAgain.length).toBe(1); // Still only the one from step 4
 
     await app.close();
   });
