@@ -7,7 +7,8 @@ import type {
 } from "hyper-express";
 
 import { InjectionToken, RegistrationOptions } from "tsyringe"
-import { IMessageTransport } from "../../../common/transport";
+import { IMessageTransport, IMessageInterceptor } from "../../../common/transport";
+import { IIdempotencyStore } from "../../../common/idempotency";
 
 //////////////////////////
 /// Boot Interfaces
@@ -80,6 +81,12 @@ export interface HyperAppMetadata {
   options?: ServerConstructorOptions;
   uwsOptions?: any;
   transports?: (Constructor<IMessageTransport> | IMessageTransport)[];
+  interceptor?: Constructor<IMessageInterceptor> | IMessageInterceptor;
+  idempotency?: {
+    enabled?: boolean;
+    ttl?: number;
+    store?: Constructor<IIdempotencyStore> | IIdempotencyStore;
+  };
   hooks?: IHyperHooks | Constructor<IHyperHooks>;
 }
 

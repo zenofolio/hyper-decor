@@ -23,5 +23,7 @@ export * from "./lib/tree/tree";
 export * from "./common/message-bus";
 export * from "./common/transport";
 export * from "./common/testing";
+export * from "./common/idempotency";
+export * from "./lib/server/interceptors/IdempotencyInterceptor";
 
 export * from "./lib/openapi";

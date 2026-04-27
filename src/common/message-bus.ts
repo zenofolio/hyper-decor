@@ -1,11 +1,16 @@
 import { container, singleton, injectable } from "tsyringe";
-import { IMessageTransport, Transport, IMessageEnvelope, IMessageEmitOptions } from "./transport";
+import { IMessageTransport, Transport, IMessageEnvelope, IMessageEmitOptions, IMessageInterceptor, IMessageOptions } from "./transport";
 import { randomUUID } from "crypto";
 
 @singleton()
 @injectable()
 export class MessageBus {
   private transports: IMessageTransport[] = [];
+  private interceptor?: IMessageInterceptor;
+
+  setInterceptor(interceptor: IMessageInterceptor) {
+    this.interceptor = interceptor;
+  }
 
   registerTransport(transport: IMessageTransport) {
     this.transports.push(transport);
@@ -22,6 +27,10 @@ export class MessageBus {
     const targets = options?.transport
       ? this.transports.filter((t) => t.name === options.transport)
       : this.transports;
+
+    if (this.interceptor?.onEmit) {
+      await this.interceptor.onEmit(topic, envelope, options || {});
+    }
 
     await Promise.all(targets.map((t) => t.emit(topic, envelope, options)));
   }
@@ -46,6 +55,13 @@ export class MessageBus {
       // Defensive unwrapping
       if (incoming && typeof incoming === 'object' && 'i' in incoming && 'm' in incoming) {
         const envelope = incoming as IMessageEnvelope;
+
+        // Interceptor check
+        if (this.interceptor?.onReceive) {
+          const proceed = await this.interceptor.onReceive(topic, envelope, options || {});
+          if (proceed === false) return; // Silent discard
+        }
+
         await handler(envelope.m, envelope);
       } else {
         // Direct delivery for non-envelope messages (external compatibility)

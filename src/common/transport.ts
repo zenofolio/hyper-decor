@@ -10,6 +10,7 @@ export enum Transport {
 export interface IMessageOptions {
   concurrency?: number;
   transport?: Transport | string;
+  idempotency?: boolean | { ttl: number };
   [key: string]: any;
 }
 
@@ -28,6 +29,18 @@ export interface IMessageEnvelope<T = any> {
   c?: string; // Correlation ID
   t: number;  // Timestamp
   m: T;       // Payload
+}
+
+/**
+ * 🛡️ Message Interceptor
+ * Allows global control over message emission and reception.
+ */
+export interface IMessageInterceptor {
+  /** Runs before sending to transports. Can modify the envelope or options. */
+  onEmit?(topic: string, envelope: IMessageEnvelope, options: IMessageEmitOptions): Promise<void>;
+
+  /** Runs when a message arrives. Return false to cancel delivery to the handler. */
+  onReceive?(topic: string, envelope: IMessageEnvelope, options: IMessageOptions): Promise<boolean>;
 }
 
 export interface IMessageTransport {
