@@ -39,7 +39,6 @@ import {
   RoleType,
   RouteMetadata,
   ScopeType,
-  HyperAppMetadata
 } from "../../lib/server/decorators/types";
 
 import { isInitialized, setInitialized } from "./lifecycle.helper";
@@ -757,6 +756,9 @@ export async function prepareApplication(
 
   // Always register config to avoid injection errors
   container.register("IdempotencyConfig", { useValue: idempotency || { enabled: false } });
+  if (!container.isRegistered("RedisClient")) {
+    container.register("RedisClient", { useValue: null });
+  }
 
   // Register Idempotency Store if enabled or if custom store provided
   if (idempotency?.enabled !== false) {
@@ -770,6 +772,12 @@ export async function prepareApplication(
       } else {
         container.register(storeToken, { useValue: StoreClass });
       }
+    }
+
+    // Initialize the store
+    const store = container.resolve<IIdempotencyStore>(storeToken);
+    if (store.onInit) {
+      await store.onInit();
     }
 
     // Default to IdempotencyInterceptor if no custom interceptor provided

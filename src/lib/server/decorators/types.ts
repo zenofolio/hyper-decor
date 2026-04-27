@@ -86,6 +86,7 @@ export interface HyperAppMetadata {
     enabled?: boolean;
     ttl?: number;
     store?: Constructor<IIdempotencyStore> | IIdempotencyStore;
+    redisOptions?: any;
   };
   hooks?: IHyperHooks | Constructor<IHyperHooks>;
 }

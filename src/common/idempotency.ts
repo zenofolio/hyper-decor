@@ -4,6 +4,8 @@ import { singleton, injectable } from "tsyringe";
  * 🗝️ Idempotency Store Interface
  */
 export interface IIdempotencyStore {
+  /** Optional initialization (e.g. connect to Redis) */
+  onInit?(): Promise<void>;
   /** Check if the key exists and is still valid */
   has(key: string): Promise<boolean>;
   /** Store the key with a specific TTL in milliseconds */

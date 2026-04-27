@@ -10,7 +10,7 @@ import {
   InternalTransport,
   InMemoryIdempotencyStore
 } from "../src";
-import { container } from "tsyringe";
+import { container, injectable } from "tsyringe";
 
 const delay = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
 
@@ -94,6 +94,43 @@ describe("Idempotency Interceptor", () => {
     await MessageBus.emit("test.idempotent", {}, { idempotencyKey: key });
     expect(service.callCount).toBe(2); // Processed again after TTL
 
+    await app.close();
+  });
+
+  it("should allow multiple subscribers in the same process to each receive the message", async () => {
+    @HyperService()
+    @injectable()
+    class MultiSubscriberService {
+      callCountA = 0;
+      callCountB = 0;
+
+      @OnMessage("multi.test")
+      async onA() { this.callCountA++; }
+
+      @OnMessage("multi.test")
+      async onB() { this.callCountB++; }
+    }
+
+    @HyperApp({
+      imports: [MultiSubscriberService],
+      transports: [InternalTransport],
+      modules: []
+    })
+    class MultiApp { }
+
+    const app = await createApplication(MultiApp);
+    const service = container.resolve(MultiSubscriberService);
+
+    await MessageBus.emit("multi.test", {});
+    
+    // Both should have been called
+    expect(service.callCountA).toBe(1);
+    expect(service.callCountB).toBe(1);
+
+    // Second emit with same ID (not possible with randomUUID, but we can mock or just wait for another emit)
+    // Actually, MessageBus.emit generates a new ID every time. 
+    // To test idempotency for multiple subscribers, we'd need to mock the envelope ID.
+    
     await app.close();
   });
 });

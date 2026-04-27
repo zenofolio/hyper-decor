@@ -31,8 +31,10 @@ export class IdempotencyInterceptor implements IMessageInterceptor {
     // Skip if idempotency is explicitly disabled for this subscription
     if (idempotency === false) return true;
 
-    // Check the store
-    const alreadyProcessed = await this.store.has(envelope.i);
+    // Check the store using a compound key (MessageID + SubscriptionID)
+    // This allows multiple listeners in the same process to each receive the message once.
+    const storageKey = `${envelope.i}:${options.subscriptionId}`;
+    const alreadyProcessed = await this.store.has(storageKey);
     if (alreadyProcessed) {
       return false; // Cancel delivery
     }
@@ -45,7 +47,7 @@ export class IdempotencyInterceptor implements IMessageInterceptor {
       ttl = this.globalConfig.ttl;
     }
 
-    await this.store.set(envelope.i, ttl);
+    await this.store.set(storageKey, ttl);
 
     return true;
   }

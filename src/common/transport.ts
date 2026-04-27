@@ -11,6 +11,7 @@ export interface IMessageOptions {
   concurrency?: number;
   transport?: Transport | string;
   idempotency?: boolean | { ttl: number };
+  subscriptionId?: string; // Internal use for idempotency keys
   [key: string]: any;
 }
 

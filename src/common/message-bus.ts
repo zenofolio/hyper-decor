@@ -45,11 +45,16 @@ export class MessageBus {
   async listen(
     topic: string,
     handler: (data: any, envelope?: IMessageEnvelope) => Promise<void> | void,
-    options?: any
+    options?: IMessageOptions
   ): Promise<void> {
     const targets = options?.transport
       ? this.transports.filter((t) => t.name === options.transport)
       : this.transports;
+
+    const subOptions: IMessageOptions = { ...options };
+    if (!subOptions.subscriptionId) {
+      subOptions.subscriptionId = randomUUID();
+    }
 
     const wrappedHandler = async (incoming: any) => {
       // Defensive unwrapping
@@ -58,7 +63,7 @@ export class MessageBus {
 
         // Interceptor check
         if (this.interceptor?.onReceive) {
-          const proceed = await this.interceptor.onReceive(topic, envelope, options || {});
+          const proceed = await this.interceptor.onReceive(topic, envelope, subOptions);
           if (proceed === false) return; // Silent discard
         }
 
@@ -69,9 +74,9 @@ export class MessageBus {
       }
     };
 
-    await Promise.all(targets.map((t) => {
-      t.listen(topic, wrappedHandler, options)
-    }));
+    await Promise.all(
+      targets.map((t) => t.listen(topic, wrappedHandler, subOptions))
+    );
   }
 
   /**
