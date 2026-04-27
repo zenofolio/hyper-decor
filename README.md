@@ -10,7 +10,9 @@ High-performance decorator library for [HyperExpress](https://github.com/kartikk
 
 - **Modular Architecture**: Organize your logic into `HyperApp`, `HyperModule`, `HyperController`, and `HyperService`.
 - **Reactive Messaging (`@OnMessage`)**: Integrated Pub/Sub system for cross-service and cross-process communication.
+- **Native Idempotency**: Prevent duplicate processing with TTL-based stores (In-Memory or Redis).
 - **Distributed Transports**: Native support for **NATS** and **Redis** with lazy loading.
+- **Message Interceptors**: Global hooks to intercept, trace, or modify messages on emission and reception.
 - **Smart Routing**: Capability to emit messages to multiple transports simultaneously (Broadcast/Bridge) or target a specific transport.
 - **Extensible Lifecycle**: Initialization hooks (`onBeforeInit`, `onAfterInit`) for full control over the application tree.
 - **OpenAPI Integration**: Automatic generation of OpenAPI 3.0 specifications based on classes and decorators.
@@ -264,6 +266,87 @@ If you need to access the ID or Timestamp (e.g., for logging or preventing dupli
 async handle(data: PaymentDto, envelope: IMessageEnvelope<PaymentDto>) {
   console.log(`Processing message ${envelope.i} created at ${envelope.t}`);
 }
+```
+
+---
+
+## Native Idempotency & Interceptors
+
+`hyper-decor` includes a robust, built-in idempotency system to prevent duplicate message processing across all transports and subscribers.
+
+### Global Configuration
+Enable idempotency at the application level. By default, it uses an in-memory store with a 5-minute TTL.
+
+```typescript
+import { HyperApp, RedisIdempotencyStore } from "@zenofolio/hyper-decor";
+
+@HyperApp({
+  idempotency: {
+    enabled: true,
+    ttl: 300000, // 5 minutes in ms
+    // Optional: Use Redis for distributed idempotency
+    store: RedisIdempotencyStore, 
+    redisOptions: { host: 'localhost' }
+  }
+})
+class Application {}
+```
+
+### Local Control
+You can override or disable idempotency for specific subscribers via the `@OnMessage` options.
+
+```typescript
+@HyperService()
+class OrderService {
+  // Custom TTL for this specific listener
+  @OnMessage("order.process", { idempotency: { ttl: 60000 } })
+  async handleOrder(data: any) { ... }
+
+  // Explicitly disable idempotency for this listener
+  @OnMessage("logs.collect", { idempotency: false })
+  async handleLogs(data: any) { ... }
+}
+```
+
+### Multiple Subscribers
+The system automatically handles multiple subscribers for the same topic. Each unique subscriber will process the message exactly once, even if they share the same idempotency store.
+
+### Custom Idempotency Keys
+By default, the system uses the automatic `messageId` (UUID). You can provide your own key (e.g., from a business process) during emission.
+
+```typescript
+await MessageBus.emit("payment.confirm", data, { 
+  idempotencyKey: `payment_${orderId}` 
+});
+```
+
+### Message Interceptors
+Implement global cross-cutting concerns (logging, tracing, filtering) using a single interceptor.
+
+```typescript
+import { injectable } from "tsyringe";
+import { IMessageInterceptor, IMessageEnvelope } from "@zenofolio/hyper-decor";
+
+@injectable()
+class MyInterceptor implements IMessageInterceptor {
+  async onEmit(topic: string, envelope: IMessageEnvelope, options: any) {
+    // Modify envelope or add tracing headers
+  }
+
+  async onReceive(topic: string, envelope: IMessageEnvelope, options: any): Promise<boolean> {
+    // Return false to cancel message delivery
+    return true;
+  }
+}
+```
+
+Register your interceptor in the `@HyperApp` decorator:
+
+```typescript
+@HyperApp({
+  interceptor: MyInterceptor
+})
+class Application {}
 ```
 
 ---
