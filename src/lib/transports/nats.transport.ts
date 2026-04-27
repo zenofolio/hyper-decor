@@ -1,4 +1,4 @@
-import { IMessageTransport, IMessageOptions, IMessageEmitOptions } from "../../common/transport";
+import { IMessageTransport, IMessageOptions, IMessageEmitOptions, Transport } from "../../common/transport";
 import type {
   NatsConnection,
   Codec,
@@ -42,7 +42,7 @@ export const OnNatsOptions = (options: Partial<NatsMessageOptions>) =>
 
 @singleton()
 export class NatsTransport implements IMessageTransport {
-  readonly name = "nats";
+  readonly name = Transport.NATS;
   private connection: NatsConnection | null = null;
   private codec: Codec<any> | null = null;
   private js: JetStreamClient | null = null;

@@ -1,14 +1,20 @@
 import { inject, injectable } from "tsyringe";
 import { ILogger, InternalLogger, LOGGER_TOKEN } from "./logger";
 
+export enum Transport {
+  INTERNAL = "internal",
+  NATS = "nats",
+  REDIS = "redis",
+}
+
 export interface IMessageOptions {
   concurrency?: number;
-  transport?: string;
+  transport?: Transport | string;
   [key: string]: any;
 }
 
 export interface IMessageEmitOptions {
-  transport?: string;
+  transport?: Transport | string;
   [key: string]: any;
 }
 
@@ -38,7 +44,7 @@ interface ITrieNode {
 
 @injectable()
 export class InternalTransport implements IMessageTransport {
-  readonly name = "internal";
+  readonly name = Transport.INTERNAL;
   private logger: ILogger;
 
   // --- Object-based Trie ---

@@ -1,4 +1,4 @@
-import { IMessageTransport, IMessageOptions, IMessageEmitOptions } from "../../common/transport";
+import { IMessageTransport, IMessageOptions, IMessageEmitOptions, Transport } from "../../common/transport";
 import type { Redis, RedisOptions } from "ioredis";
 
 import { SetMessageMetadata } from "../../lib/server/decorators/Messaging";
@@ -21,7 +21,7 @@ export const OnRedisOptions = (options: Partial<RedisMessageOptions>) =>
   SetMessageMetadata("redis", options);
 
 export class RedisTransport implements IMessageTransport {
-  readonly name = "redis";
+  readonly name = Transport.REDIS;
   private pubClient: Redis | null = null;
   private subClient: Redis | null = null;
   private options: RedisOptions;

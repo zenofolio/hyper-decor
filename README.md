@@ -89,14 +89,14 @@ class Application {}
 The `MessageBus` allows sending messages through all transports or a specific one.
 
 ```typescript
-import { MessageBus } from "@zenofolio/hyper-decor";
+import { MessageBus, Transport } from "@zenofolio/hyper-decor";
 
 // Sends to all registered transports (Broadcast/Bridge)
 await MessageBus.emit("user.registered", { id: 1, email: "test@test.com" });
 
-// Targeted routing
-await MessageBus.emit("order.created", data, { transport: 'nats' });
-await MessageBus.emit("urgent.alert", data, { transport: 'redis' });
+// Targeted routing (using the enum or string)
+await MessageBus.emit("order.created", data, { transport: Transport.NATS });
+await MessageBus.emit("urgent.alert", data, { transport: Transport.REDIS });
 ```
 
 ---
@@ -150,19 +150,82 @@ container.register(LOGGER_TOKEN, { useValue: myLogger });
 
 ## Lifecycle Hooks
 
-Services and modules can react to different stages of application initialization.
+`hyper-decor` provides several hooks to manage initialization and preparation.
+
+### 1. `onInit()` (Services & Modules)
+The primary hook for any `@injectable`, `@HyperService`, or `@HyperModule`. It runs once during the deep-resolution process.
 
 ```typescript
 @HyperService()
-class CacheService {
-  async onBeforeInit() {
-    // Runs before routes are registered
+class CacheService implements OnInit {
+  async onInit() {
+    // Runs when the service is resolved and ready
     console.log("Connecting to database...");
   }
+}
+```
 
-  async onAfterInit() {
-    // Runs when the entire tree (including child modules) is ready
-    console.log("Cache system synchronized.");
+### 2. `onPrepare()` (Application)
+Supported only on the `@HyperApp` class. It runs after the entire application tree has been prepared and routes are registered, but before the server starts listening (if handled manually).
+
+```typescript
+@HyperApp({ ... })
+class MainApp {
+  async onPrepare() {
+    console.log("Server is ready to receive traffic.");
+  }
+}
+```
+
+### 3. Global Hooks (`IHyperHooks`)
+You can provide global hooks in the `@HyperApp` configuration to intercept every component's initialization.
+
+---
+
+## Dual Transport Strategy (Local vs Distributed)
+
+For performance-critical systems, you can combine the ultra-fast **Internal** transport with distributed ones like **NATS**.
+
+### 1. Registration
+```typescript
+import { HyperApp, Transport, InternalTransport, NatsTransport } from "@zenofolio/hyper-decor";
+
+@HyperApp({
+  transports: [
+    InternalTransport, // Ultra-fast (microsecond latency)
+    new NatsTransport({ servers: "nats://..." }) // Global scale
+  ]
+})
+class Application {}
+```
+
+### 2. Targeted Emission
+Use `emitLocal` for same-process events or the `Transport` enum for specific targets.
+
+```typescript
+import { MessageBus, Transport } from "@zenofolio/hyper-decor";
+
+// 🚀 Maximum performance (stays in memory)
+await MessageBus.emitLocal("cache.invalidate", { id: 1 });
+
+// 🌐 Distributed event
+await MessageBus.emit("user.created", data, { transport: Transport.NATS });
+```
+
+### 3. Targeted Subscription
+Use `@OnInternal` to ensure a listener only reacts to local events, avoiding network overhead or double-delivery.
+
+```typescript
+@HyperService()
+class SpeedService {
+  @OnInternal("critical.task")
+  async handleQuickly(data: any) {
+    // Runs only via InternalTransport
+  }
+
+  @OnTransport(Transport.NATS, "global.event")
+  async handleGlobal(data: any) {
+    // Runs only via NATS
   }
 }
 ```

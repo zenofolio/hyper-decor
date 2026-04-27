@@ -1,5 +1,5 @@
 import { container, singleton, injectable } from "tsyringe";
-import { IMessageTransport } from "./transport";
+import { IMessageTransport, Transport } from "./transport";
 
 @singleton()
 @injectable()
@@ -16,6 +16,13 @@ export class MessageBus {
       : this.transports;
 
     await Promise.all(targets.map((t) => t.emit(topic, data, options)));
+  }
+
+  /**
+   * Emits a message only to the local (internal) transport for maximum performance.
+   */
+  async emitLocal(topic: string, data: any, options?: any): Promise<void> {
+    await this.emit(topic, data, { ...options, transport: Transport.INTERNAL });
   }
 
   async listen(
@@ -38,5 +45,13 @@ export class MessageBus {
   static async emit(topic: string, data: any, options?: any): Promise<void> {
     const bus = container.resolve(MessageBus);
     await bus.emit(topic, data, options);
+  }
+
+  /**
+   * Static helper to emit messages locally without resolving the bus manually.
+   */
+  static async emitLocal(topic: string, data: any, options?: any): Promise<void> {
+    const bus = container.resolve(MessageBus);
+    await bus.emitLocal(topic, data, options);
   }
 }
