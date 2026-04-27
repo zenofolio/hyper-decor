@@ -79,7 +79,7 @@ export interface HyperAppMetadata {
   imports?: ImportType[];
   options?: ServerConstructorOptions;
   uwsOptions?: any;
-  transports?: IMessageTransport[];
+  transports?: (Constructor<IMessageTransport> | IMessageTransport)[];
   hooks?: IHyperHooks | Constructor<IHyperHooks>;
 }
 

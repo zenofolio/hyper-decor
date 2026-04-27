@@ -7,6 +7,7 @@ import {
   OnMessage,
   createApplication,
   IMessageTransport,
+  ILogger,
 } from "../src";
 import { container } from "tsyringe";
 
@@ -14,6 +15,18 @@ const delay = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
 // 1. Mock Transport Implementation
 class MockTransport implements IMessageTransport {
+  isConnected(): Promise<boolean> {
+    return Promise.resolve(true);
+  }
+  close(): Promise<void> {
+    return Promise.resolve();
+  }
+  onInit?(): Promise<any> {
+    return Promise.resolve();
+  }
+  setLogger(logger: ILogger): void {
+    return;
+  }
   name: string = "mock";
   public lastEmitted: { topic: string, data: any } | null = null;
   public handlers: Map<string, Function[]> = new Map();
