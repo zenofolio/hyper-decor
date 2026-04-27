@@ -23,8 +23,9 @@ export class RedisIdempotencyStore implements IIdempotencyStore {
 
     // Lazy load ioredis if not provided
     try {
-      const RedisClass = (await import("ioredis")).default;
-      this.client = new RedisClass(this.config?.redisOptions || {});
+      const IORedis = await import("ioredis");
+      const RedisConstructor = (IORedis as any).Redis || (IORedis as any).default || IORedis;
+      this.client = new (RedisConstructor as any)(this.config?.redisOptions || {});
     } catch (e) {
       throw new Error("[HYPER-ERROR] RedisIdempotencyStore requires 'ioredis' package. Please install it.");
     }
