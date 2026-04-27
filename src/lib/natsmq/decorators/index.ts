@@ -1,6 +1,8 @@
 import "reflect-metadata";
 import { z } from "zod";
 
+import type { ConsumerConfig } from "nats";
+
 // --- Metadata Keys ---
 export const NATSMQ_CLIENT_METADATA = Symbol("NATSMQ_CLIENT_METADATA");
 export const NATSMQ_SUBSCRIPTION_METADATA = Symbol("NATSMQ_SUBSCRIPTION_METADATA");
@@ -8,12 +10,10 @@ export const NATSMQ_CONCURRENCY_METADATA = Symbol("NATSMQ_CONCURRENCY_METADATA")
 export const NATSMQ_CRON_METADATA = Symbol("NATSMQ_CRON_METADATA");
 
 // --- Options Interfaces ---
-export interface NatsSubscriptionOptions {
+export interface NatsSubscriptionOptions extends Partial<ConsumerConfig> {
   stream?: string;
-  durable?: string;
-  deliverPolicy?: "All" | "New" | "Last";
-  ackWaitMs?: number;
-  maxRetries?: number;
+  // Ensure we can still access durable_name through the extended interface if needed,
+  // or they can use the standard NATS property names.
 }
 
 export interface CronOptions {
