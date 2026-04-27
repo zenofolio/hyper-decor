@@ -22,7 +22,7 @@ export class NatsMQ {
     this.engine = new NatsMQEngine(options);
     this.metrics = new DefaultNatsMQMetrics();
     this.cron = new CronScheduler(
-      options.concurrencyStore || new (require("./store/local-store").LocalConcurrencyStore)(), 
+      options.concurrencyStore || new LocalConcurrencyStore(), 
       this.metrics
     );
   }
