@@ -1,8 +1,24 @@
 import "reflect-metadata";
-import { describe, it } from "vitest";
-import { createApplication, Get, HyperApp, HyperController, HyperModule, Res, Response } from "../src";
+import { describe, expect, it } from "vitest";
+import { createApplication, Get, HyperApp, HyperController, HyperModule, injectable, OnInit, Res, Response, singleton, IsSingleton } from "../src";
 import { request } from "./helpers/request";
 
+
+
+@injectable()
+@singleton()
+class TestService implements OnInit {
+  static count = 0;
+
+  constructor() {
+    TestService.count++;
+  }
+  async onInit(): Promise<any> {
+    TestService.count++;
+  }
+
+
+}
 
 @HyperController("/unit")
 class AppController {
@@ -14,13 +30,15 @@ class AppController {
 
 @HyperModule({
   path: "/test",
-  controllers: [AppController]
+  controllers: [AppController],
+  imports: [TestService]
 })
 class AppModule { }
 
 @HyperApp({
   name: "api",
   modules: [AppModule],
+  imports: [TestService],
   logs: {
     modules: true,
     controllers: true,
@@ -46,5 +64,10 @@ describe("HyperApp", () => {
     } finally {
       await app.close();
     }
+  });
+
+  it("app: singleton must be initialzed 1 time", async () => {
+    await createApplication(Application);
+    expect(TestService.count).toBe(2);
   });
 });

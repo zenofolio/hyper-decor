@@ -19,6 +19,7 @@ export interface NatsTransportOptions extends ConnectionOptions {
 
 import { SetMessageMetadata } from "../../lib/server/decorators/Messaging";
 import { ILogger, InternalLogger } from "../../common/logger";
+import { singleton } from "tsyringe";
 
 export interface NatsMessageOptions extends IMessageOptions {
   queue?: string;
@@ -38,6 +39,8 @@ export interface NatsMessageOptions extends IMessageOptions {
 export const OnNatsOptions = (options: Partial<NatsMessageOptions>) =>
   SetMessageMetadata("nats", options);
 
+
+@singleton()
 export class NatsTransport implements IMessageTransport {
   readonly name = "nats";
   private connection: NatsConnection | null = null;
@@ -64,41 +67,7 @@ export class NatsTransport implements IMessageTransport {
 
 
   async getClient(): Promise<NatsConnection> {
-    if (this.connection) return this.connection;
-    if (this.connectionPromise) return this.connectionPromise;
-
-    this.connectionPromise = (async () => {
-      try {
-        const { connect, JSONCodec } = await import("nats");
-        this.logger?.info(`[NatsTransport] Connecting to NATS at ${JSON.stringify(this.options.servers)}`);
-        this.connection = await connect(this.options);
-        this.codec = this.options?.codec || JSONCodec();
-
-        this.logger?.info(`[NatsTransport] Connected to NATS`);
-
-        if (this.options.jetstream) {
-          this.js = this.connection.jetstream();
-          this.jsm = await this.connection.jetstreamManager();
-        }
-
-        this.connection.closed().then((err: any) => {
-          if (err) this.logger?.error(`[NatsTransport] Connection closed with error:`, err);
-          else this.logger?.info(`[NatsTransport] Connection closed`);
-          this.connection = null;
-          this.connectionPromise = null;
-          this.js = null;
-          this.jsm = null;
-        });
-
-        return this.connection;
-      } catch (error) {
-        this.connectionPromise = null;
-        this.logger?.error("[NatsTransport] Failed to connect to NATS", error);
-        throw new Error("NATS dependency is missing or connection failed.");
-      }
-    })();
-
-    return this.connectionPromise;
+    return await this.onInit()
   }
 
   private async ensureJetStream() {
@@ -214,6 +183,40 @@ export class NatsTransport implements IMessageTransport {
   }
 
   async onInit(): Promise<any> {
-    await this.getClient();
+    if (this.connection) return this.connection;
+    if (this.connectionPromise) return this.connectionPromise;
+
+    this.connectionPromise = (async () => {
+      try {
+        const { connect, JSONCodec } = await import("nats");
+        this.logger?.info(`[NatsTransport] Connecting to NATS at ${JSON.stringify(this.options.servers)}`);
+        this.connection = await connect(this.options);
+        this.codec = this.options?.codec || JSONCodec();
+
+        this.logger?.info(`[NatsTransport] Connected to NATS`);
+
+        if (this.options.jetstream) {
+          this.js = this.connection.jetstream();
+          this.jsm = await this.connection.jetstreamManager();
+        }
+
+        this.connection.closed().then((err: any) => {
+          if (err) this.logger?.error(`[NatsTransport] Connection closed with error:`, err);
+          else this.logger?.info(`[NatsTransport] Connection closed`);
+          this.connection = null;
+          this.connectionPromise = null;
+          this.js = null;
+          this.jsm = null;
+        });
+
+        return this.connection;
+      } catch (error) {
+        this.connectionPromise = null;
+        this.logger?.error("[NatsTransport] Failed to connect to NATS", error);
+        throw new Error("NATS dependency is missing or connection failed.");
+      }
+    })();
+
+    return this.connectionPromise;
   }
 }

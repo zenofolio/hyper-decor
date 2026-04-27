@@ -27,7 +27,9 @@ export class MessageBus {
       ? this.transports.filter((t) => t.name === options.transport)
       : this.transports;
 
-    await Promise.all(targets.map((t) => t.listen(topic, handler, options)));
+    await Promise.all(targets.map((t) => {
+      t.listen(topic, handler, options)
+    }));
   }
 
   /**

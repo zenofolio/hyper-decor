@@ -5,7 +5,7 @@ import {
   Router,
   Server,
 } from "hyper-express";
-import { container, InjectionToken, injectable } from "tsyringe";
+import { container, injectable } from "tsyringe";
 
 import { ScopeStore } from "../stores";
 import { Metadata } from "../stores/meta.store";
@@ -34,12 +34,12 @@ import {
   ImportObject,
   ImportType,
   LogSpaces,
-  OnInit,
-  ParameterResolver,
   RoleType,
   RouteMetadata,
   ScopeType,
 } from "../../lib/server/decorators/types";
+
+import { isInitialized, setInitialized } from "./lifecycle.helper";
 
 /* -------------------------------------------------------------------------- */
 /*                                 Interfaces                                 */
@@ -71,6 +71,37 @@ interface TargetData {
 }
 
 /* -------------------------------------------------------------------------- */
+/*                              Bootstrap Context                             */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * Per-bootstrap weak caches.
+ *
+ * These caches avoid recalculating metadata, transforming middlewares,
+ * and registering handlers repeatedly during a single application bootstrap.
+ *
+ * They are intentionally scoped to prepareApplication(), so they can be
+ * garbage-collected after the bootstrap finishes.
+ */
+class BootstrapContext {
+  readonly serverMetadataCache = new WeakMap<Function, HyperPrefixRoot>();
+  readonly metadataCache = new WeakMap<Function, TargetData>();
+  readonly resolvableCache = new WeakSet<Function>();
+  readonly handlersCache = new WeakMap<object, Set<string>>();
+  readonly importTokenCache = new WeakSet<object | Function>();
+}
+
+/**
+ * Global single-flight initialization cache.
+ *
+ * This one is intentionally global. It protects singleton-like objects from
+ * being initialized more than once, even if prepareApplication() is called
+ * multiple times or if two bootstrap branches try to initialize the same
+ * object concurrently.
+ */
+const globalInitPromises = new WeakMap<object | Function, Promise<void>>();
+
+/* -------------------------------------------------------------------------- */
 /*                                  Helpers                                   */
 /* -------------------------------------------------------------------------- */
 
@@ -78,40 +109,62 @@ function createRouter(target?: Constructor | null): Router {
   if (!target || !(target.prototype instanceof Router)) {
     return new Router();
   }
+
   return new (target as Constructor<Router>)();
 }
 
-function getServerMetadata(target: Constructor | Function): HyperPrefixRoot {
-  const root = Metadata.get<any>(target);
-  return root.server || {
-    common: { type: "controller" } as HyperCommonMetadata,
-    methods: {},
-  };
-}
-
-function getCommonMetadata(target: Constructor | Function): HyperCommonMetadata {
-  const server = getServerMetadata(target);
-  return server.common || ({ type: "controller" } as HyperCommonMetadata);
-}
-
-function getMethodMetadataMap(
+function getServerMetadata(
+  ctx: BootstrapContext,
   target: Constructor | Function
-): Record<string, HyperMethodMetadata> {
-  const server = getServerMetadata(target);
-  return (server.methods || {}) as Record<string, HyperMethodMetadata>;
+): HyperPrefixRoot {
+  const cached = ctx.serverMetadataCache.get(target);
+  if (cached) return cached;
+
+  const root = Metadata.get<any>(target);
+  const server =
+    root.server ||
+    ({
+      common: { type: "controller" } as HyperCommonMetadata,
+      methods: {},
+    } as HyperPrefixRoot);
+
+  ctx.serverMetadataCache.set(target, server);
+  return server;
 }
 
-function getData(target: Constructor | Function): TargetData {
-  const common = getCommonMetadata(target);
-  return {
+function getData(ctx: BootstrapContext, target: Constructor | Function): TargetData {
+  const cached = ctx.metadataCache.get(target);
+  if (cached) return cached;
+
+  const server = getServerMetadata(ctx, target);
+  const common = server.common || ({ type: "controller" } as HyperCommonMetadata);
+
+  const data: TargetData = {
     type: common.type,
     metadata: common,
     middlewares: middlewareTransformer(common.middlewares ?? []),
     scopes: common.scopes ?? [],
     roles: common.roles ?? [],
-    methods: getMethodMetadataMap(target),
+    methods: (server.methods || {}) as Record<string, HyperMethodMetadata>,
     pass: !!common.pass,
   };
+
+  ctx.metadataCache.set(target, data);
+  return data;
+}
+
+function getCommonMetadata(
+  ctx: BootstrapContext,
+  target: Constructor | Function
+): HyperCommonMetadata {
+  return getData(ctx, target).metadata;
+}
+
+function getMethodMetadataMap(
+  ctx: BootstrapContext,
+  target: Constructor | Function
+): Record<string, HyperMethodMetadata> {
+  return getData(ctx, target).methods;
 }
 
 function logTargetType(
@@ -122,41 +175,128 @@ function logTargetType(
 ): void {
   if (type === "module") {
     log("modules", `${namespace} { ${prefix} }`);
-  } else if (type === "controller") {
+    return;
+  }
+
+  if (type === "controller") {
     log("controllers", `${namespace} { ${prefix} }`);
   }
 }
 
+/**
+ * Ensures a class is resolvable by tsyringe even without @injectable().
+ *
+ * Uses a WeakSet to avoid re-applying injectable() and re-checking registration
+ * repeatedly during bootstrap.
+ */
+function ensureResolvable(ctx: BootstrapContext, target: Constructor): void {
+  if (ctx.resolvableCache.has(target)) return;
+
+  if (!container.isRegistered(target)) {
+    injectable()(target);
+    container.register(target, target);
+  }
+
+  ctx.resolvableCache.add(target);
+}
+
+/**
+ * Initializes an object exactly once.
+ *
+ * This prevents duplicate singleton initialization and also protects against
+ * concurrent initialization races by caching the initialization Promise.
+ */
+async function initOnce(instance: any, token?: object | Function): Promise<void> {
+  if (!instance || typeof instance.onInit !== "function") return;
+
+  const key = token ?? instance;
+  const existing = globalInitPromises.get(key);
+
+  if (existing) {
+    await existing;
+    return;
+  }
+
+  const promise = Promise.resolve()
+    .then(async () => {
+      if (isInitialized(instance)) return;
+
+      setInitialized(instance);
+      await instance.onInit();
+    })
+    .catch((error) => {
+      globalInitPromises.delete(key);
+      throw error;
+    });
+
+  globalInitPromises.set(key, promise);
+  await promise;
+}
+
+/* -------------------------------------------------------------------------- */
+/*                              Message Handlers                              */
+/* -------------------------------------------------------------------------- */
+
 export async function registerInstanceHandlers(
+  ctx: BootstrapContext,
   instance: object,
   target: Constructor,
   namespace: string,
   log: (space: keyof LogSpaces, message: string) => void
 ): Promise<void> {
-  const methods = getMethodMetadataMap(target);
+  const methods = getMethodMetadataMap(ctx, target);
+  const methodKeys = Object.keys(methods);
+
+  if (methodKeys.length === 0) return;
+
+  let registered = ctx.handlersCache.get(instance);
+
+  if (!registered) {
+    registered = new Set<string>();
+    ctx.handlersCache.set(instance, registered);
+  }
+
   const bus = container.resolve(MessageBus);
 
-  for (const propertyKey of Object.keys(methods)) {
+  for (const propertyKey of methodKeys) {
     const methodMeta = methods[propertyKey];
-    if (methodMeta.onMessage) {
-      const { topic, options = {} } = methodMeta.onMessage;
-      
-      // Generic merge: all metadata on the method is passed as options
-      const finalOptions = {
-        ...options,
-        ...methodMeta
-      };
-      delete (finalOptions as any).onMessage;
 
-      const hasOptions = Object.keys(finalOptions).length > 0;
+    if (!methodMeta.onMessage) continue;
 
-      await bus.listen(topic, async (data) => {
-        return await (instance as any)[propertyKey].call(instance, data);
-      }, hasOptions ? finalOptions : undefined);
-      log("messaging", `${namespace}/${propertyKey} -> ${topic}`);
+    const cacheKey = `${target.name}:${propertyKey}:${methodMeta.onMessage.topic}`;
+    if (registered.has(cacheKey)) continue;
+
+    const handler = (instance as any)[propertyKey];
+
+    if (typeof handler !== "function") {
+      throw new Error(
+        `Message handler "${target.name}.${String(propertyKey)}" is not a function`
+      );
     }
+
+    const { topic, options = {} } = methodMeta.onMessage;
+
+    const finalOptions: Record<string, any> = {
+      ...options,
+      ...methodMeta,
+    };
+
+    delete finalOptions.onMessage;
+
+    await bus.listen(
+      topic,
+      async (data) => handler.call(instance, data),
+      Object.keys(finalOptions).length > 0 ? finalOptions : undefined
+    );
+
+    registered.add(cacheKey);
+    log("messaging", `${namespace}/${propertyKey} -> ${topic}`);
   }
 }
+
+/* -------------------------------------------------------------------------- */
+/*                                Middleware                                  */
+/* -------------------------------------------------------------------------- */
 
 function applyCommonPipeline(
   targetName: string,
@@ -166,7 +306,13 @@ function applyCommonPipeline(
 ): void {
   if (data.middlewares.length) {
     carrier.use(...data.middlewares);
-    log?.("middleware", `${targetName} with middlewares: ${data.middlewares.map(m => m.name).join(", ")}`);
+
+    log?.(
+      "middleware",
+      `${targetName} with middlewares: ${data.middlewares
+        .map((m) => m.name)
+        .join(", ")}`
+    );
   }
 
   if (data.scopes.length) {
@@ -186,21 +332,27 @@ function applyCommonPipeline(
 }
 
 /* -------------------------------------------------------------------------- */
-/*                           Route/Handler construction                        */
+/*                           Route/Handler Construction                        */
 /* -------------------------------------------------------------------------- */
 
 function buildArgumentsResolver(
   paramsMeta: HyperParameterMetadata["params"]
 ): (req: HE_Request, res: HE_Response) => Promise<any[]> {
+  if (!paramsMeta || paramsMeta.length === 0) {
+    return async (req, res) => [req, res];
+  }
+
   const sorted = [...paramsMeta].sort((a, b) => a.index - b.index);
   const hasBody = sorted.some((p) => p.source === "body");
 
-  // Pre-calculate per-parameter resolution logic
   const resolvers = sorted.map((meta) => {
     if (meta.resolver) return meta.resolver;
 
     const sourceKey = meta.source;
-    if (!sourceKey) return () => null;
+
+    if (!sourceKey) {
+      return () => null;
+    }
 
     const isWhole = meta.isWholeSource;
     const picker = meta.picker;
@@ -210,10 +362,12 @@ function buildArgumentsResolver(
       if (sourceKey === "req") return req;
       if (sourceKey === "res") return res;
 
-      let source = sourceKey === "body" ? body : (req as any)[sourceKey];
+      const source = sourceKey === "body" ? body : (req as any)[sourceKey];
+
       if (!source) return null;
 
       const rawValue = isWhole ? source : picker ? source[picker] : source;
+
       if (!schema) return rawValue;
 
       return await transformRegistry.resolve({
@@ -228,10 +382,10 @@ function buildArgumentsResolver(
   });
 
   return async (req: HE_Request, res: HE_Response) => {
-    if (resolvers.length === 0) return [req, res];
+    const body =
+      hasBody && typeof req.json === "function" ? await req.json() : undefined;
 
-    const body = hasBody && typeof req.json === "function" ? await req.json() : undefined;
-    return await Promise.all(resolvers.map((r) => r(req, res, body)));
+    return await Promise.all(resolvers.map((resolver) => resolver(req, res, body)));
   };
 }
 
@@ -253,6 +407,7 @@ function buildResponseSender(
         res,
         from: "response" as any,
       });
+
       if (transformed !== undefined && !res.completed) {
         res.json(transformed as Record<string, unknown>);
         return;
@@ -260,15 +415,18 @@ function buildResponseSender(
     }
 
     if (res.completed) return;
+
     if (typeof result === "object" && result !== null) {
       res.json(result as Record<string, unknown>);
-    } else {
-      res.send(result as string);
+      return;
     }
+
+    res.send(String(result));
   };
 }
 
 async function prepareRoute(
+  ctx: BootstrapContext,
   target: Constructor,
   router: Router,
   route: RouteMetadata,
@@ -277,49 +435,82 @@ async function prepareRoute(
   log: (space: keyof LogSpaces, message: string) => void
 ): Promise<void> {
   const { method, path, propertyKey, options } = route;
-  const methodMeta = getMethodMetadataMap(target)[propertyKey] || {};
-  const ctrlMeta = getCommonMetadata(target);
 
-  const roles = [...(ctrlMeta.roles ?? []), ...(methodMeta.roles ?? [])];
-  const scopes = [...(ctrlMeta.scopes ?? []), ...(methodMeta.scopes ?? [])];
-
-  const middlewares = middlewareTransformer(methodMeta.middlewares ?? []);
-  roleTransform(roles, m => middlewares.push(m));
-  scopeTransfrom(scopes, (m, s) => {
-    middlewares.push(m);
-    ScopeStore.addAll(s);
-  });
+  const methodMeta = getMethodMetadataMap(ctx, target)[propertyKey] || {};
+  const ctrlMeta = getCommonMetadata(ctx, target);
 
   log("routes", `${namespace}/${propertyKey} ${method.toUpperCase()} { ${path} }`);
 
+  const handlerMethod = (instance as any)[propertyKey];
+
+  if (typeof handlerMethod !== "function") {
+    throw new Error(`Route handler "${target.name}.${String(propertyKey)}" is not a function`);
+  }
+
   if (method === "ws" && options) {
-    router.ws(path, options as any, (instance as any)[propertyKey].bind(instance));
+    router.ws(path, options as any, handlerMethod.bind(instance));
     return;
+  }
+
+  const middlewares: Function[] = [];
+
+  if (methodMeta.middlewares?.length) {
+    middlewares.push(...middlewareTransformer(methodMeta.middlewares));
+  }
+
+  const roles =
+    ctrlMeta.roles || methodMeta.roles
+      ? [...(ctrlMeta.roles ?? []), ...(methodMeta.roles ?? [])]
+      : [];
+
+  const scopes =
+    ctrlMeta.scopes || methodMeta.scopes
+      ? [...(ctrlMeta.scopes ?? []), ...(methodMeta.scopes ?? [])]
+      : [];
+
+  if (roles.length) {
+    roleTransform(roles, (middleware) => {
+      middlewares.push(middleware);
+    });
+  }
+
+  if (scopes.length) {
+    scopeTransfrom(scopes, (middleware, resolvedScopes) => {
+      middlewares.push(middleware);
+      ScopeStore.addAll(resolvedScopes);
+    });
   }
 
   const argumentResolver = buildArgumentsResolver(methodMeta.params?.params || []);
   const responseSender = buildResponseSender(
     methodMeta.output || methodMeta.reflection?.output
   );
-  const handlerMethod = (instance as any)[propertyKey];
 
   const handler = async (req: HE_Request, res: HE_Response) => {
     try {
       const args = await argumentResolver(req, res);
       const result = await handlerMethod.apply(instance, args);
+
       await responseSender(res, result, req);
     } catch (err) {
       if (res.completed) return;
+
       const error = err as any;
+
       res.status(error.status || 500).json({
         error: error.message || "Internal Server Error",
-        code: error.code,
+        code: error.code || "InternalServerError",
       });
     }
   };
 
-  const fn = Reflect.get(router, method) as Function;
-  if (fn) fn.call(router, path, ...middlewares, handler);
+  const mount = Reflect.get(router, method) as Function;
+
+  if (typeof mount !== "function") {
+    throw new Error(`Unsupported route method "${String(method)}"`);
+  }
+
+  mount.call(router, path, ...middlewares, handler);
 }
 
 /* -------------------------------------------------------------------------- */
@@ -327,138 +518,194 @@ async function prepareRoute(
 /* -------------------------------------------------------------------------- */
 
 async function prepareImportsInternal(
+  ctx: BootstrapContext,
   imports: ImportType[],
   context: MountingContext,
   log: (space: keyof LogSpaces, message: string) => void
 ): Promise<void> {
-  await Promise.all(imports.map(async (item) => {
+  if (!imports.length) return;
+
+  for (const item of imports) {
     let token: any;
+
     if (typeof item === "function") {
       token = item;
-      if (!container.isRegistered(token)) container.register(token, token as Constructor);
+
+      if (!container.isRegistered(token)) {
+        ensureResolvable(ctx, token as Constructor);
+      }
     } else if (typeof item === "object" && item !== null) {
       const obj = item as ImportObject;
       token = obj.token;
-      if (obj.useClass) container.register(token, { useClass: obj.useClass });
-      else if (obj.useValue) container.register(token, { useValue: obj.useValue } as any);
-      else if (obj.useFactory) container.register(token, { useFactory: obj.useFactory } as any);
-      else if (obj.useToken) container.register(token, { useToken: obj.useToken } as any);
+
+      if (!ctx.importTokenCache.has(token)) {
+        if (obj.useClass) {
+          container.register(token, { useClass: obj.useClass });
+        } else if (obj.useValue) {
+          container.register(token, { useValue: obj.useValue } as any);
+        } else if (obj.useFactory) {
+          container.register(token, { useFactory: obj.useFactory } as any);
+        } else if (obj.useToken) {
+          container.register(token, { useToken: obj.useToken } as any);
+        }
+
+        ctx.importTokenCache.add(token);
+      }
     } else {
       token = item as any;
     }
 
     const instance = container.resolve(token) as any;
-    if (instance) {
-      const itemContext = { ...context, type: "service" as const, target: token };
-      if (context.hooks?.onBeforeInit) await context.hooks.onBeforeInit(instance, token, itemContext);
-      if (typeof token === "function" && token.name) {
-        await registerInstanceHandlers(instance, token as Constructor, `imports/${token.name}`, log);
-      }
-      if (typeof instance.onInit === "function") await instance.onInit();
-      if (context.hooks?.onAfterInit) await context.hooks.onAfterInit(instance, token, itemContext);
-    }
-  }));
-}
 
-/**
- * Ensures a class is resolvable by tsyringe even without @injectable()
- */
-function ensureResolvable(target: Constructor) {
-  if (!container.isRegistered(target)) {
-    // We apply injectable() at runtime to ensure metadata is picked up if not already done
-    injectable()(target);
-    container.register(target, target);
+    if (!instance) continue;
+
+    const itemContext: MountingContext = {
+      ...context,
+      type: "service",
+      target: token,
+    };
+
+    await context.hooks?.onBeforeInit?.(instance, token, itemContext);
+
+    if (typeof token === "function" && token.name) {
+      await registerInstanceHandlers(
+        ctx,
+        instance,
+        token as Constructor,
+        `imports/${token.name}`,
+        log
+      );
+    }
+
+    await initOnce(instance, token);
+
+    await context.hooks?.onAfterInit?.(instance, token, itemContext);
   }
 }
 
 async function registerRoutes(
+  ctx: BootstrapContext,
   target: Constructor,
   instance: object,
   router: Router | Server,
   namespace: string,
   log: (space: keyof LogSpaces, message: string) => void
 ): Promise<void> {
-  const methods = getMethodMetadataMap(target);
+  const methods = getMethodMetadataMap(ctx, target);
+
   for (const key of Object.keys(methods)) {
     const route = methods[key].route;
-    if (route) await prepareRoute(target, router as Router, route, instance, namespace, log);
+
+    if (route) {
+      await prepareRoute(ctx, target, router as Router, route, instance, namespace, log);
+    }
   }
 }
 
 async function prepareController(
+  ctx: BootstrapContext,
   descriptor: ComponentDescriptor<HyperControllerMetadata>,
   context: MountingContext,
   log: (space: keyof LogSpaces, message: string) => void
 ): Promise<void> {
   const { target, instance, metadata } = descriptor;
-  const data = getData(target);
-  const router = new Router();
+
+  const data = getData(ctx, target);
+  const router = createRouter();
 
   logTargetType("controller", context.namespace, context.prefix, log);
 
-  await prepareImportsInternal(metadata.imports ?? [], context, log);
-  await registerInstanceHandlers(instance, target, context.namespace, log);
+  await prepareImportsInternal(ctx, metadata.imports ?? [], context, log);
 
-  applyCommonPipeline(target.name, { use: (...args) => router.use(...args) }, data, log);
+  await registerInstanceHandlers(ctx, instance, target, context.namespace, log);
 
-  await registerRoutes(target, instance, router, context.namespace, log);
+  applyCommonPipeline(
+    target.name,
+    { use: (...args) => router.use(...args) },
+    data,
+    log
+  );
+
+  await registerRoutes(ctx, target, instance, router, context.namespace, log);
 
   context.parentRouter.use(context.prefix, router);
 }
 
 async function prepareModule(
+  ctx: BootstrapContext,
   descriptor: ComponentDescriptor<HyperModuleMetadata>,
   context: MountingContext,
   log: (space: keyof LogSpaces, message: string) => void
 ): Promise<void> {
   const { target, instance, metadata } = descriptor;
-  const data = getData(target);
-  const router = new Router();
+
+  const data = getData(ctx, target);
+  const router = createRouter();
 
   logTargetType("module", context.namespace, context.prefix, log);
 
-  await prepareImportsInternal(metadata.imports ?? [], context, log);
-  await registerInstanceHandlers(instance, target, context.namespace, log);
+  await prepareImportsInternal(ctx, metadata.imports ?? [], context, log);
 
-  applyCommonPipeline(target.name, { use: (...args) => router.use(...args) }, data, log);
+  await registerInstanceHandlers(ctx, instance, target, context.namespace, log);
 
-  // Recurse modules
+  applyCommonPipeline(
+    target.name,
+    { use: (...args) => router.use(...args) },
+    data,
+    log
+  );
+
   if (metadata.modules?.length) {
-    for (const m of metadata.modules) {
-      const mData = getData(m).metadata as HyperModuleMetadata;
-      ensureResolvable(m);
+    for (const moduleTarget of metadata.modules) {
+      const moduleData = getData(ctx, moduleTarget).metadata as HyperModuleMetadata;
+
+      ensureResolvable(ctx, moduleTarget);
+
       await prepareModule(
-        { target: m, instance: container.resolve(m), metadata: mData },
+        ctx,
+        {
+          target: moduleTarget,
+          instance: container.resolve(moduleTarget),
+          metadata: moduleData,
+        },
         {
           parentRouter: router,
-          namespace: `${context.namespace}/${m.name}`,
-          prefix: mData.path || "/",
+          namespace: `${context.namespace}/${moduleTarget.name}`,
+          prefix: moduleData.path || "/",
           hooks: context.hooks,
           type: "module",
-          target: m
+          target: moduleTarget,
         },
         log
       );
     }
   }
 
-  // Direct routes on module
-  await registerRoutes(target, instance, router, context.namespace, log);
+  await registerRoutes(ctx, target, instance, router, context.namespace, log);
 
-  // Controllers
   if (metadata.controllers?.length) {
-    for (const c of metadata.controllers) {
-      const cData = getData(c).metadata as HyperControllerMetadata;
-      ensureResolvable(c);
+    for (const controllerTarget of metadata.controllers) {
+      const controllerData = getData(
+        ctx,
+        controllerTarget
+      ).metadata as HyperControllerMetadata;
+
+      ensureResolvable(ctx, controllerTarget);
+
       await prepareController(
-        { target: c, instance: container.resolve(c), metadata: cData },
+        ctx,
+        {
+          target: controllerTarget,
+          instance: container.resolve(controllerTarget),
+          metadata: controllerData,
+        },
         {
           parentRouter: router,
-          namespace: `${context.namespace}/${c.name}`,
-          prefix: cData.path || "/",
+          namespace: `${context.namespace}/${controllerTarget.name}`,
+          prefix: controllerData.path || "/",
           hooks: context.hooks,
           type: "controller",
-          target: c
+          target: controllerTarget,
         },
         log
       );
@@ -467,72 +714,106 @@ async function prepareModule(
 
   context.parentRouter.use(context.prefix, router);
 }
+
+/* -------------------------------------------------------------------------- */
+/*                              Application Boot                              */
+/* -------------------------------------------------------------------------- */
 
 export async function prepareApplication(
   options: HyperAppMetadata,
   Target: Constructor,
   log: (space: keyof LogSpaces, message: string) => void
 ): Promise<Server> {
+  const ctx = new BootstrapContext();
+
   const appServer = new Server(options.uwsOptions || options.options);
 
-  // Register global error handler to properly handle status codes from exceptions
   appServer.set_error_handler((req, res, error) => {
+    if (res.completed) return;
+
     const status = (error as any).status || 500;
+
     res.status(status).json({
       error: error.message || "Internal Server Error",
       code: (error as any).code || "InternalServerError",
-      ...(error instanceof Error ? { stack: error.stack } : {})
+      ...(process.env.NODE_ENV !== "production" && error instanceof Error
+        ? { stack: error.stack }
+        : {}),
     });
   });
 
-  ensureResolvable(Target);
+  ensureResolvable(ctx, Target);
+
   const appInstance = container.resolve(Target);
-  const data = getData(Target);
+  const data = getData(ctx, Target);
 
   const bus = container.resolve(MessageBus);
-  const transports = options.transports && options.transports.length > 0 ? options.transports : [InternalTransport];
-  transports.forEach(t => bus.registerTransport(typeof t === "function" ? container.resolve(t as any) : t));
 
-  await Promise.all((transports as IMessageTransport[]).map(t => {
-    if (t && t.onInit) return t.onInit();
-  }))
+  const transports =
+    options.transports && options.transports.length > 0
+      ? options.transports
+      : [InternalTransport];
 
-  const hooks = (options.hooks ? (typeof options.hooks === "function" ? container.resolve(options.hooks as any) : options.hooks) : undefined) as any;
+  for (const transport of transports as IMessageTransport[]) {
+    bus.registerTransport(typeof transport === "function" ? container.resolve(transport) : transport);
+    await initOnce(transport, transport);
+  }
+
+  const hooks = options.hooks
+    ? typeof options.hooks === "function"
+      ? container.resolve(options.hooks as any)
+      : options.hooks
+    : undefined;
+
   const context: MountingContext = {
     parentRouter: appServer as any,
     namespace: Target.name,
     prefix: options.prefix ?? "/",
-    hooks,
+    hooks: hooks as any,
     type: "app",
-    target: Target
+    target: Target,
   };
 
-  await prepareImportsInternal(options.imports ?? [], context, log);
-  await registerInstanceHandlers(appInstance, Target, context.namespace, log);
+  await prepareImportsInternal(ctx, options.imports ?? [], context, log);
 
-  applyCommonPipeline(Target.name, { use: (...args) => appServer.use(...args) }, data, log);
+  await registerInstanceHandlers(ctx, appInstance, Target, context.namespace, log);
 
-  // Direct routes on app
-  await registerRoutes(Target, appInstance, appServer, context.namespace, log);
+  applyCommonPipeline(
+    Target.name,
+    { use: (...args) => appServer.use(...args) },
+    data,
+    log
+  );
+
+  await registerRoutes(ctx, Target, appInstance, appServer, context.namespace, log);
 
   if (options.modules?.length) {
-    for (const m of options.modules) {
-      const mData = getData(m).metadata as HyperModuleMetadata;
-      ensureResolvable(m);
+    for (const moduleTarget of options.modules) {
+      const moduleData = getData(ctx, moduleTarget).metadata as HyperModuleMetadata;
+
+      ensureResolvable(ctx, moduleTarget);
+
       await prepareModule(
-        { target: m, instance: container.resolve(m), metadata: mData },
+        ctx,
+        {
+          target: moduleTarget,
+          instance: container.resolve(moduleTarget),
+          metadata: moduleData,
+        },
         {
           parentRouter: appServer as any,
-          namespace: `${Target.name}/${m.name}`,
-          prefix: join(context.prefix, mData.path || "/"),
-          hooks,
+          namespace: `${Target.name}/${moduleTarget.name}`,
+          prefix: join(context.prefix, moduleData.path || "/"),
+          hooks: hooks as any,
           type: "module",
-          target: m
+          target: moduleTarget,
         },
         log
       );
     }
   }
+
+  await initOnce(appInstance, Target);
 
   return appServer;
 }
