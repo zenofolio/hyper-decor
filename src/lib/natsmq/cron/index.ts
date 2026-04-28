@@ -34,7 +34,7 @@ export class CronScheduler {
           actualTime: new Date(),
           executionId: `${Date.now()}-${Math.random().toString(36).substring(2, 9)}`,
           extendLock: async (ms: number) => {
-            await this.store.extend([lockKey], ms);
+            await this.store.extend(locked, ms);
           },
           log: (msg: string) => console.log(`[Cron | ${meta.name}] ${msg}`),
           metrics: this.metrics
@@ -43,7 +43,13 @@ export class CronScheduler {
         await handler(ctx);
         this.metrics.increment("natsmq_cron_completed_total", 1, { name: meta.name });
       } catch (err: any) {
-        if (err.name !== "ExecutionError" && err.name !== "ResourceLockedError" && !err.message?.includes("limit")) {
+        const msg = err.message || String(err);
+        const isExpected = err.name === "ExecutionError" || 
+                          err.name === "ResourceLockedError" || 
+                          msg.includes("limit") || 
+                          msg.includes("Lock not found");
+
+        if (!isExpected) {
           console.error(`[Cron | ${meta.name}] Error:`, err);
           this.metrics.increment("natsmq_cron_failed_total", 1, { name: meta.name });
         }
