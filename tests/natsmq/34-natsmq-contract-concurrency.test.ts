@@ -8,12 +8,15 @@ import { LocalConcurrencyStore } from "../../src/lib/natsmq/store/local-store";
 
 const delay = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
 
+const name = `contract.concurrency.${Math.random().toString(36).substring(7)}`;
+const stream = `str_conc_${Math.random().toString(36).substring(7)}`;
+
 // Correct Contract Definition
 const queue = defineQueue();
 const TaskContract = queue.define(
-  `contract.concurrency.${Math.random().toString(36).substring(7)}`,
+  name,
   z.object({ id: z.number() })
-).withStream(`STR_CONC_${Math.random().toString(36).substring(7)}`);
+).withStream(stream);
 
 describe("NatsMQ Contract-based Concurrency", () => {
   let service: NatsMQService;
@@ -27,7 +30,7 @@ describe("NatsMQ Contract-based Concurrency", () => {
         servers: "nats://localhost:4222",
         concurrencyStore: new LocalConcurrencyStore()
       });
-    } catch(e) {
+    } catch (e) {
       // Already configured, that's fine for this test
     }
     await service.onInit();

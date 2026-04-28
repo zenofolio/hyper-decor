@@ -4,11 +4,17 @@ import { Redis } from "ioredis";
 
 const workerPath = resolve(__dirname, "cron-worker.ts");
 const REDIS_KEY = "bench:cron:total_executions";
+const ACTIVE_BUCKETS = "bench:cron:active_buckets";
+const BUCKET_PREFIX = "bench:cron:bucket";
 
 async function runBench() {
   const redis = new Redis("redis://localhost:6379");
   await redis.del(REDIS_KEY);
-  await redis.del("test:cron:dist:*"); // Clear possible old locks
+  await redis.del(ACTIVE_BUCKETS);
+  // Clear any old buckets
+  const keys = await redis.keys(`${BUCKET_PREFIX}:*`);
+  if (keys.length > 0) await redis.del(...keys);
+  await redis.del("test:cron:dist:*"); 
 
   console.log("⚖️ Starting REAL DISTRIBUTED Cron Benchmark...");
   console.log("[Bench] Spawning 3 independent worker processes...");
@@ -41,18 +47,42 @@ async function runBench() {
   }
 
   console.log("\n" + "=".repeat(40));
+  
+  // ANALYZE OVERLAPS
+  const buckets = await redis.smembers(ACTIVE_BUCKETS);
+  let collisionDetected = false;
+  
+  console.log("🏁 DISTRIBUTED CRON ANALYSIS:");
+  
+  // Sort buckets for readable output
+  buckets.sort();
+
+  for (const bucket of buckets) {
+    const pids = await redis.smembers(`${BUCKET_PREFIX}:${bucket}`);
+    if (pids.length > 1) {
+      console.log(`❌ COLLISION at bucket ${bucket}: Workers [${pids.join(", ")}] executed simultaneously!`);
+      collisionDetected = true;
+    } else {
+      console.log(`✅ Bucket ${bucket}: Single execution by Worker ${pids[0]}`);
+    }
+  }
+
   const finalCount = parseInt((await redis.get(REDIS_KEY)) || "0");
-  console.log("🏁 DISTRIBUTED CRON RESULTS");
+  console.log("-".repeat(40));
   console.log("Total Cluster Executions:", finalCount);
 
-  // If exclusion works, we should have around 5-6 executions (1 per second)
-  // If it fails, we would have around 15-18 executions (3 per second)
-  const success = finalCount >= 4 && finalCount <= 7;
-
-  if (success) {
-    console.log("✅ SUCCESS: Distributed cron strictly enforced (Only 1 instance at a time).");
+  if (!collisionDetected && finalCount >= 4 && finalCount <= 12) {
+    console.log("✅ SUCCESS: Distributed cron strictly enforced.");
   } else {
-    console.log("❌ FAILURE: Exclusion failed or instances didn't run!");
+    if (collisionDetected) {
+      console.log("❌ FAILURE: Mutual exclusion failed (detected overlaps).");
+    } else {
+      console.log("❌ FAILURE: Execution count outside expected range.");
+    }
+    
+    // Cleanup
+    for (const child of children) child.kill();
+    await redis.quit();
     process.exit(1);
   }
 
