@@ -1,14 +1,23 @@
-# Evitar archivos innecesarios en npm
+# Dependencias y logs
 node_modules/
-test/
-tests/
-src/
+*.log
+*.txt
+.env
+
+# Desarrollo y Herramientas
 .git
 .github
 .vscode
-.env
-*.log
-*.txt
+.ai-context/
+tsconfig.json
+vitest.config.ts
+pnpm-lock.yaml
+
+# Código de pruebas y benchmarks
+test/
+tests/
+benches/
+docs/
 examples/
-**/.ai-context/
-**/examples
+
+# Nota: src/ NO se ignora porque los exports de package.json lo referencian
