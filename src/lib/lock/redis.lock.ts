@@ -1,4 +1,4 @@
-import { randomBytes, createHash } from "crypto";
+import { randomUUID, createHash } from "crypto";
 import { EventEmitter } from "events";
 import { ILock, ILockManager, LockAbortSignal as RedlockAbortSignal, runUsing } from "./lock";
 
@@ -273,7 +273,7 @@ export default class Redlock extends EventEmitter implements ILockManager {
      * Generate a cryptographically random string.
      */
     private _random(): string {
-        return randomBytes(16).toString("hex");
+        return randomUUID();
     }
 
     /**
@@ -297,7 +297,7 @@ export default class Redlock extends EventEmitter implements ILockManager {
         duration: number,
         settings?: Partial<Settings>
     ): Promise<ILock> {
-        if (Math.floor(duration) !== duration) {
+        if (!Number.isInteger(duration)) {
             throw new Error("Duration must be an integer value in milliseconds.");
         }
 
@@ -555,12 +555,13 @@ export default class Redlock extends EventEmitter implements ILockManager {
     ): Promise<ClientExecutionResult> {
         try {
             let result: number;
+            // Pre-compute the combined args array once to avoid per-call spread allocation.
+            const combinedArgs: (string | number)[] = [...keys, ...args];
             try {
                 // Attempt to evaluate the script by its hash.
-                const shaResult = (await client.evalsha(script.hash, keys.length, [
-                    ...keys,
-                    ...args,
-                ] as any)) as unknown;
+                const shaResult = (await client.evalsha(
+                    script.hash, keys.length, combinedArgs as any
+                )) as unknown;
 
                 if (typeof shaResult !== "number") {
                     throw new Error(
@@ -578,10 +579,9 @@ export default class Redlock extends EventEmitter implements ILockManager {
                 ) {
                     throw error;
                 }
-                const rawResult = (await client.eval(script.value, keys.length, [
-                    ...keys,
-                    ...args,
-                ] as any)) as unknown;
+                const rawResult = (await client.eval(
+                    script.value, keys.length, combinedArgs as any
+                )) as unknown;
 
                 if (typeof rawResult !== "number") {
                     throw new Error(
