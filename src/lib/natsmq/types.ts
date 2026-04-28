@@ -62,8 +62,9 @@ export interface INatsMetrics {
 
   /**
    * Inspection: get the current value of a counter.
+   * If subject is not provided, returns the total across all subjects.
    */
-  getCounter(subject: string, type: 'received' | 'success' | 'error'): Promise<number>;
+  getCounter(type: 'received' | 'success' | 'error', subject?: string): Promise<number>;
 
   /**
    * Inspection: get the average latency for a subject.

@@ -1,7 +1,8 @@
 import { connect, NatsConnection, JetStreamClient, JetStreamManager, StringCodec, JsMsg, JSONCodec, RetentionPolicy, Consumer } from "nats";
-import { NatsMQOptions, IConcurrencyStore } from "../types";
+import { NatsMQOptions, IConcurrencyStore, NatsMQMetrics } from "../types";
 import { LocalConcurrencyStore } from "../store/local-store";
 import { NatsSubscriptionMeta, NatsConcurrencyMeta } from "../decorators";
+import { NatsMessageContract } from "../contracts";
 import { z } from "zod";
 import { ILock } from "../../lock/lock";
 
@@ -25,6 +26,36 @@ export class NatsMQEngine {
     this.dlsSubject = options.dlsSubject || null;
     this.retryBackoff = options.retryBackoffMs || [1000, 2000, 5000];
     console.log(`[Engine] 🚀 Initialized with Store: ${this.store.constructor.name}`);
+  }
+
+  public get metrics(): NatsMQMetrics | undefined {
+    return this.options.metrics;
+  }
+
+  public getConcurrencyStore(): IConcurrencyStore {
+    return this.store;
+  }
+
+  /**
+   * Inspection: Returns the number of successfully processed messages.
+   * If subject is provided, returns count for that subject.
+   * Otherwise returns the global total across all subjects.
+   */
+  public async getSuccessCount(subject?: string): Promise<number> {
+    if (!this.metrics) return 0;
+    return this.metrics.getCounter('success', subject);
+  }
+
+  /**
+   * Inspection: Returns the current number of active (locked) messages.
+   * If subject is provided, returns count for that subject.
+   * Otherwise returns the global total across all subjects.
+   */
+  public async getActiveCount(subject?: string): Promise<number> {
+    if (subject) {
+      return this.store.getActiveCount(subject);
+    }
+    return this.store.getGlobalActiveCount();
   }
 
   async start(): Promise<void> {
@@ -111,6 +142,12 @@ export class NatsMQEngine {
           await msg.nak();
           break;
         }
+
+        // Record receipt
+        if (this.options.metrics) {
+          this.options.metrics.recordMessageReceived(msg.subject);
+        }
+
         // Don't await processMessage here so we don't block the delivery of other messages
         this.processMessage(msg, meta, concurrencyMeta, handler).catch(err => {
           console.error(`[Engine] ❌ Critical processing error for ${msg.subject}:`, err);
@@ -131,10 +168,23 @@ export class NatsMQEngine {
     const ttl = concurrencyMeta?.ttlMs || 60000;
 
     const routine = async () => {
-      const decoded = this.jc.decode(msg.data);
-      const parsed = meta.schema.parse(decoded);
-      await handler(parsed, msg);
-      await msg.ack();
+      const start = Date.now();
+      try {
+        const decoded = this.jc.decode(msg.data);
+        const parsed = meta.schema.parse(decoded);
+        await handler(parsed, msg);
+        await msg.ack();
+
+        if (this.options.metrics) {
+          const duration = Date.now() - start;
+          await this.options.metrics.recordProcessingSuccess(msg.subject, duration);
+        }
+      } catch (err) {
+        if (this.options.metrics) {
+          await this.options.metrics.recordProcessingError(msg.subject, "handler_error");
+        }
+        throw err;
+      }
     };
 
     if (concurrencyMeta) {
@@ -178,8 +228,23 @@ export class NatsMQEngine {
     return true;
   }
 
-  async publish<T>(subject: string, schema: z.ZodType<T>, data: T): Promise<void> {
+  async publish<T>(subjectOrContract: string | NatsMessageContract<T>, schemaOrData: z.ZodType<T> | T, maybeData?: T): Promise<void> {
     if (!this.js || !this.running) throw new Error("Engine not started");
+
+    let subject: string;
+    let schema: z.ZodType<T>;
+    let data: T;
+
+    if (typeof subjectOrContract === "string") {
+      subject = subjectOrContract;
+      schema = schemaOrData as z.ZodType<T>;
+      data = maybeData as T;
+    } else {
+      subject = subjectOrContract.subject;
+      schema = subjectOrContract.schema;
+      data = schemaOrData as T;
+    }
+
     const payload = this.jc.encode(schema.parse(data));
     await this.js.publish(subject, payload);
   }

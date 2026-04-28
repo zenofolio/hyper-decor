@@ -5,6 +5,7 @@ export * from "./store/redis-store";
 export * from "./engine";
 export * from "./metrics";
 export * from "./cron";
+export * from "./contracts";
 
 // Optional: A higher level NatsMQ wrapper could be placed here to integrate
 // Engine, Metrics, and Cron together in one facade for easier dependency injection.

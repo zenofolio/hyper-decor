@@ -1,6 +1,6 @@
 {
   "name": "@zenofolio/hyper-decor",
-  "version": "1.0.86",
+  "version": "1.0.9",
   "description": "Project core with utilities and features",
   "main": "dist/index.js",
   "author": "zenozaga",
@@ -45,12 +45,9 @@
   },
   "dependencies": {
     "@zenofolio/hyper-decor": "file:",
-    "core-decorators": "^0.20.0",
     "croner": "^10.0.1",
-    "eventemitter3": "^5.0.4",
     "file-type": "^19.5.0",
     "reflect-metadata": "^0.2.2",
-    "ts-type": "^3.0.8",
     "tsyringe": "^4.8.0",
     "zod": "^4.3.6"
   },

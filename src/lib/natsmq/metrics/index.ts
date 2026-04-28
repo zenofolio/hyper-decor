@@ -31,14 +31,21 @@ export class DefaultNatsMQMetrics implements INatsMetrics {
     this.gauges.set(key, value);
   }
 
-  async getCounter(subject: string, type: 'received' | 'success' | 'error'): Promise<number> {
-    if (type === 'error') {
-      return Array.from(this.counters.entries())
-        .filter(([k]) => k.startsWith(`error:`) && k.endsWith(subject))
-        .reduce((acc, [_, v]) => acc + v, 0);
+  async getCounter(type: 'received' | 'success' | 'error', subject?: string): Promise<number> {
+    if (subject) {
+      if (type === 'error') {
+        return Array.from(this.counters.entries())
+          .filter(([k]) => k.startsWith(`error:`) && k.endsWith(subject))
+          .reduce((acc, [_, v]) => acc + v, 0);
+      }
+      const key = `${type}:${subject}`;
+      return this.counters.get(key) || 0;
     }
-    const key = `${type}:${subject}`;
-    return this.counters.get(key) || 0;
+
+    // No subject provided: sum all counters of this type
+    return Array.from(this.counters.entries())
+      .filter(([k]) => k.startsWith(`${type}:`))
+      .reduce((acc, [_, v]) => acc + v, 0);
   }
 
   async getAverageLatency(_subject: string): Promise<number> {

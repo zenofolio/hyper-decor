@@ -2,6 +2,7 @@ import "reflect-metadata";
 import { z } from "zod";
 
 import type { ConsumerConfig, JsMsg } from "nats";
+import { NatsMessageContract } from "../contracts";
 
 // --- Metadata Keys ---
 export const NATSMQ_CLIENT_METADATA = Symbol("NATSMQ_CLIENT_METADATA");
@@ -59,11 +60,26 @@ export function NatsClient(): PropertyDecorator {
  * Automatically validates incoming payloads using the provided Zod schema.
  */
 export function OnNatsMessage<T extends z.ZodTypeAny>(
-  subject: string,
-  schema: T,
-  options: NatsSubscriptionOptions = {}
+  subjectOrContract: string | NatsMessageContract<z.infer<T>>,
+  schemaOrOptions?: T | NatsSubscriptionOptions,
+  maybeOptions: NatsSubscriptionOptions = {}
 ) {
   return (target: object, propertyKey: any, descriptor?: any) => {
+    let subject: string;
+    let schema: z.ZodTypeAny;
+    let options: NatsSubscriptionOptions;
+
+    if (typeof subjectOrContract === "string") {
+      subject = subjectOrContract;
+      schema = schemaOrOptions as z.ZodTypeAny;
+      options = maybeOptions;
+    } else {
+      // Contract mode
+      subject = subjectOrContract.subject;
+      schema = subjectOrContract.schema;
+      options = { ...subjectOrContract.options, ...(schemaOrOptions as any) };
+    }
+
     const existing: NatsSubscriptionMeta[] = Reflect.getMetadata(NATSMQ_SUBSCRIPTION_METADATA, target.constructor) || [];
     existing.push({
       methodName: propertyKey as string,

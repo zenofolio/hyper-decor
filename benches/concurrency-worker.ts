@@ -1,8 +1,7 @@
 import "reflect-metadata";
-import { connect, JSONCodec, DeliverPolicy } from "nats";
+import { JSONCodec, DeliverPolicy } from "nats";
 import { OnNatsMessage, MaxAckPendingPerSubject } from "../src/lib/natsmq/decorators";
 import { NatsMQService } from "../src/lib/natsmq/service";
-import { Redis } from "ioredis";
 import { RedisConcurrencyStore } from "../src/lib/natsmq/store/redis-store";
 import { z } from "zod";
 import { RedisMetrics } from "../src/lib/natsmq";
@@ -10,28 +9,26 @@ import { RedisMetrics } from "../src/lib/natsmq";
 const JobSchema = z.object({ id: z.number() });
 const delay = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
 
-class ConcurrencyWorker {
-  private jc = JSONCodec();
+const CONCURRENCY_LIMIT = parseInt(process.env.LIMIT || "5");
 
+class ConcurrencyWorker {
   @OnNatsMessage("jobs.stress.concurrency.*", JobSchema, {
     stream: "STR_STRESS",
     deliver_policy: DeliverPolicy.All,
-    durable_name: "stress_consumer"
+    durable_name: "stress_consumer" // Shared durable name for load balancing across processes
   })
-  @MaxAckPendingPerSubject("jobs.stress.concurrency.*", 5)
+  @MaxAckPendingPerSubject("jobs.stress.concurrency.*", CONCURRENCY_LIMIT)
   async handle(data: z.infer<typeof JobSchema>) {
     await delay(500);
   }
 }
 
 async function main() {
-  console.log(`[Worker ${process.pid}] 🐣 I AM ALIVE!`);
   const { Redis } = await import("ioredis");
-
-  const testPrefix = process.env.BENCH_PREFIX || "natsmq";
   const redis = new Redis("redis://localhost:6379");
-  const store = new RedisConcurrencyStore({ redis, prefix: `${testPrefix}:store` });
-  const metrics = new RedisMetrics({ redis, prefix: `${testPrefix}:metrics` });
+
+  const store = new RedisConcurrencyStore({ redis, prefix: process.env.REDIS_PREFIX });
+  const metrics = new RedisMetrics({ redis, prefix: process.env.METRICS_PREFIX });
 
   const service = NatsMQService.getInstance();
   service.configure({
@@ -41,10 +38,8 @@ async function main() {
   });
   await service.onInit();
 
-  const worker = new ConcurrencyWorker();
-  await service.registerInstance(worker);
-
-  console.log(`👷 Concurrency Worker ${process.pid} listening... Prefix: ${testPrefix}`);
+  await service.registerInstance(new ConcurrencyWorker());
+  console.log(`🚀 [Worker ${process.pid}] READY (Limit: ${CONCURRENCY_LIMIT}, Prefix: ${process.env.REDIS_PREFIX})`);
 }
 
 main().catch(console.error);

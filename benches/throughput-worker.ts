@@ -1,13 +1,13 @@
 import "reflect-metadata";
 import { NatsMQService } from "../src/lib/natsmq/service";
 import { MaxAckPendingPerSubject, OnNatsMessage } from "../src/lib/natsmq/decorators";
-import { connect, JSONCodec, DeliverPolicy } from "nats";
+import { DeliverPolicy } from "nats";
 import { z } from "zod";
 
 const JobSchema = z.object({ id: z.number(), isLast: z.boolean().optional() });
 
 class ThroughputWorker {
-  private jc = JSONCodec();
+  private count = 0;
 
   @OnNatsMessage("bench.throughput", JobSchema, {
     stream: "STR_BENCH",
@@ -16,10 +16,15 @@ class ThroughputWorker {
   })
   @MaxAckPendingPerSubject("bench.throughput", 10)
   async handle(data: z.infer<typeof JobSchema>) {
+    this.count++;
+
+    if (this.count % 200 === 0) {
+      console.log(`[Worker:${process.pid}] processed ${this.count} messages`);
+    }
+
     if (data.isLast) {
-      const nc = await connect({ servers: "nats://localhost:4222" });
-      await nc.publish("bench.done", this.jc.encode({ time: Date.now() }));
-      await nc.close();
+      console.log(`[Worker:${process.pid}] ✅ GOT isLast after ${this.count} messages`);
+      process.send?.({ type: "done", time: Date.now(), count: this.count });
     }
   }
 }

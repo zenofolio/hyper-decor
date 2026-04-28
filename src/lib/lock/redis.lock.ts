@@ -346,7 +346,7 @@ export default class Redlock extends EventEmitter implements ILockManager {
      * error, as the lock will automatically expire after its timeout.
      */
     public async release(
-        lock: Lock,
+        lock: ILock,
         settings?: Partial<Settings>
     ): Promise<ExecutionResult> {
         // Immediately invalidate the lock.
@@ -365,10 +365,10 @@ export default class Redlock extends EventEmitter implements ILockManager {
      * This method extends a valid lock by the provided `duration`.
      */
     public async extend(
-        existing: Lock,
+        existing: ILock,
         duration: number,
         settings?: Partial<Settings>
-    ): Promise<Lock> {
+    ): Promise<ILock> {
         if (Math.floor(duration) !== duration) {
             throw new Error("Duration must be an integer value in milliseconds.");
         }

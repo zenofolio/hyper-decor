@@ -103,6 +103,41 @@ await MessageBus.emit("urgent.alert", data, { transport: Transport.REDIS });
 
 ---
 
+## 🚀 NatsMQ: Next-Gen Messaging Engine
+
+For projects requiring high-fidelity concurrency control and strict data integrity, `hyper-decor` includes **NatsMQ**, a specialized engine built on NATS JetStream.
+
+### Key Capabilities
+- **Contract-First Design**: Define messages as typed objects to eliminate "string magic".
+- **Strict Distributed Concurrency**: Enforce per-subject limits across independent worker processes.
+- **Atomic Reliability**: Built-in local retry queues and Redis-backed state management.
+- **Native Zod Validation**: Every message is validated at both the source (Publish) and destination (Consume).
+
+### Example: Contract-First Approach
+```typescript
+import { defineQueue, OnNatsMessage } from "@zenofolio/hyper-decor";
+
+// 1. Define the contract
+export const Orders = defineQueue("orders.>", { stream: "SHOP" });
+export const OrderCreated = Orders.define("created", z.object({ id: z.string() }));
+
+// 2. Use in Worker
+class OrderWorker {
+  @OnNatsMessage(OrderCreated)
+  @MaxAckPendingPerSubject("orders.created", 10)
+  async handle(data: z.infer<typeof OrderCreated.schema>) {
+    // data is fully typed and validated
+  }
+}
+
+// 3. Publish safely
+await engine.publish(OrderCreated, { id: "ORD-123" });
+```
+
+[Read more in the NatsMQ Documentation](./docs/getting-started.md)
+
+---
+
 ## Observability & Logging
 
 `hyper-decor` includes a flexible logging system to monitor the behavior of your transports and messaging system.

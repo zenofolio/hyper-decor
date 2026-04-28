@@ -35,9 +35,15 @@ export class RedisMetrics implements INatsMetrics {
     await this.redis.hincrby(`${this.prefix}:cron:errors`, name, 1);
   }
 
-  async getCounter(subject: string, type: 'received' | 'success' | 'error'): Promise<number> {
-    const val = await this.redis.hget(`${this.prefix}:${type}`, subject);
-    return parseInt(val || "0");
+  async getCounter(type: 'received' | 'success' | 'error', subject?: string): Promise<number> {
+    if (subject) {
+      const val = await this.redis.hget(`${this.prefix}:${type}`, subject);
+      return parseInt(val || "0");
+    }
+
+    // No subject: sum all fields in the hash
+    const vals = await this.redis.hvals(`${this.prefix}:${type}`);
+    return vals.reduce((acc, v) => acc + parseInt(v || "0"), 0);
   }
 
   async getAverageLatency(subject: string): Promise<number> {
