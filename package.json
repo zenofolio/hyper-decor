@@ -97,6 +97,14 @@
     "./openapi/*": {
       "node": "./dist/lib/openapi/*.js",
       "default": "./src/lib/openapi/*.ts"
+    },
+    "./natsmq": {
+      "node": "./dist/lib/natsmq/index.js",
+      "default": "./src/lib/natsmq/index.ts"
+    },
+    "./lock": {
+      "node": "./dist/lib/lock/index.js",
+      "default": "./src/lib/lock/index.ts"
     }
   },
   "bin": {

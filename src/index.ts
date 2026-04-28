@@ -27,3 +27,5 @@ export * from "./common/idempotency";
 export * from "./lib/server/interceptors/IdempotencyInterceptor";
 
 export * from "./lib/openapi";
+export * from "./lib/natsmq";
+export * from "./lib/lock";
