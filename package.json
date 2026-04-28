@@ -1,6 +1,6 @@
 {
   "name": "@zenofolio/hyper-decor",
-  "version": "2.0.2",
+  "version": "2.0.3",
   "description": "Project core with utilities and features",
   "main": "dist/index.js",
   "author": "zenozaga <zenozaga@gmail.com> (https://github.com/zenozaga)",
@@ -64,47 +64,47 @@
     ".": {
       "default": "./dist/index.js",
       "node": "./dist/index.js",
-      "import": "./src/index.ts"
+      "import": "./dist/index.js"
     },
     "./decorators/*": {
       "node": "./dist/decorators/*.js",
-      "default": "./src/decorators/*.ts"
+      "default": "./dist/decorators/*.js"
     },
     "./helpers/*": {
       "node": "./dist/common/helpers/*.js",
-      "default": "./src/common/helpers/*.ts"
+      "default": "./dist/common/helpers/*.js"
     },
     "./collectors/*": {
       "node": "./dist/common/collectors/*.js",
-      "default": "./src/common/collectors/*.ts"
+      "default": "./dist/common/collectors/*.js"
     },
     "./exceptions/*": {
       "node": "./dist/common/exceptions/*.js",
-      "default": "./src/common/exceptions/*.ts"
+      "default": "./dist/common/exceptions/*.js"
     },
     "./extension": {
       "node": "./dist/extension.js",
-      "default": "./src/extension.ts"
+      "default": "./dist/extension.js"
     },
     "./testing": {
       "node": "./dist/common/testing.js",
-      "default": "./src/common/testing.ts"
+      "default": "./dist/common/testing.js"
     },
     "./openapi": {
       "node": "./dist/lib/openapi/index.js",
-      "default": "./src/lib/openapi/index.ts"
+      "default": "./dist/lib/openapi/index.js"
     },
     "./openapi/*": {
       "node": "./dist/lib/openapi/*.js",
-      "default": "./src/lib/openapi/*.ts"
+      "default": "./dist/lib/openapi/*.js"
     },
     "./natsmq": {
       "node": "./dist/lib/natsmq/index.js",
-      "default": "./src/lib/natsmq/index.ts"
+      "default": "./dist/lib/natsmq/index.js"
     },
     "./lock": {
       "node": "./dist/lib/lock/index.js",
-      "default": "./src/lib/lock/index.ts"
+      "default": "./dist/lib/lock/index.js"
     }
   },
   "bin": {

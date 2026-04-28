@@ -1,10 +1,10 @@
-# Dependencias y logs
+# Dependencies and logs
 node_modules/
 *.log
 *.txt
 .env
 
-# Desarrollo y Herramientas
+# Development and Tools
 .git
 .github
 .vscode
@@ -13,11 +13,12 @@ tsconfig.json
 vitest.config.ts
 pnpm-lock.yaml
 
-# Código de pruebas y benchmarks
+# Test and benchmark code
 test/
 tests/
 benches/
 docs/
 examples/
+src/
 
-# Nota: src/ NO se ignora porque los exports de package.json lo referencian
+# Note: src/ is ignored because exports now point to dist/
