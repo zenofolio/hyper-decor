@@ -109,7 +109,7 @@ export class NatsMQService {
       }
 
       if (concurrencyMeta) {
-        console.log(`[Service] 🛡️ [DEBUG-VERSION-STRESS-42] Concurrency limit detected for ${sub.subject}: ${concurrencyMeta.limit}`);
+        // Concurrency metadata found
       }
 
       // Provision stream if it doesn't exist
