@@ -18,7 +18,11 @@
     "test:watch": "vitest",
     "test:ui": "vitest --ui",
     "build": "tsc",
-    "publish": "npm run build && npm publish --access public"
+    "publish": "npm run build && npm publish --access public",
+    "bench:chaos": "tsx benches/chaos-storm.ts",
+    "bench:throughput": "tsx benches/throughput.ts",
+    "bench:metrics:redis": "tsx benches/redis-metrics.ts",
+    "bench:concurrency": "tsx benches/concurrency.ts"
   },
   "peerDependencies": {
     "hyper-express": "^6.17.3",

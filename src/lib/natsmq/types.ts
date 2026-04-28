@@ -1,4 +1,6 @@
-export interface IConcurrencyStore {
+import { ILock, ILockManager, LockAbortSignal, LockOptions } from "../lock/lock";
+
+export interface IConcurrencyStore extends ILockManager {
   /**
    * Optional initialization (e.g., connecting to Redis).
    */
@@ -11,20 +13,24 @@ export interface IConcurrencyStore {
 
   /**
    * Attempts to acquire a slot for the given subject.
-   * If the limit is reached, returns false.
+   * If the limit is reached, returns null.
    * 
-   * @param subject The exact subject string.
-   * @param limit The maximum number of concurrent executions allowed.
-   * @param ttlMs The maximum time the lock should be held (safety net for crashes).
+   * @param resources In this context, the first resource is the subject string.
+   * @param duration The maximum time the lock should be held.
+   * @param options Should contain 'limit' for concurrency control.
+   * @returns The ILock instance if acquired, or null if the limit was reached.
    */
-  acquire(subject: string, limit: number, ttlMs: number): Promise<boolean>;
+  acquire(resources: string[], duration: number, options?: LockOptions): Promise<ILock | null>;
 
   /**
-   * Releases a slot for the given subject.
-   * 
-   * @param subject The exact subject string.
+   * Releases an existing lock.
    */
-  release(subject: string): Promise<void>;
+  release(lock: ILock, options?: LockOptions): Promise<any>;
+
+  /**
+   * Extends an existing lock.
+   */
+  extend(lock: ILock, duration: number, options?: LockOptions): Promise<ILock>;
 
   /**
    * Returns the total number of currently active locks across all subjects.
@@ -38,6 +44,35 @@ export interface IConcurrencyStore {
   getActiveCount(subject: string): Promise<number>;
 }
 
+export interface INatsMetrics {
+  recordMessageReceived(subject: string): void | Promise<void>;
+  recordProcessingSuccess(subject: string, durationMs: number): void | Promise<void>;
+  recordProcessingError(subject: string, type: string): void | Promise<void>;
+  recordCronError(name: string, error: string): void | Promise<void>;
+
+  /**
+   * General purpose increment.
+   */
+  increment(name: string, value?: number, labels?: Record<string, string>): void | Promise<void>;
+
+  /**
+   * General purpose gauge.
+   */
+  gauge(name: string, value: number, labels?: Record<string, string>): void | Promise<void>;
+
+  /**
+   * Inspection: get the current value of a counter.
+   */
+  getCounter(subject: string, type: 'received' | 'success' | 'error'): Promise<number>;
+
+  /**
+   * Inspection: get the average latency for a subject.
+   */
+  getAverageLatency(subject: string): Promise<number>;
+}
+
+export type NatsMQMetrics = INatsMetrics;
+
 export interface NatsMQOptions {
   /**
    * NATS cluster addresses.
@@ -46,17 +81,16 @@ export interface NatsMQOptions {
   servers: string | string[];
 
   /**
-   * Enable internal Prometheus-style metrics collection.
-   * Default: false
-   */
-  metricsEnabled?: boolean;
-
-  /**
    * The subject where messages that fail Zod validation will be sent.
    * If not provided, invalid messages will be terminated (ACKed without processing) 
    * and logged as errors, but not sent to a DLS.
    */
   dlsSubject?: string;
+
+  /**
+   * External metrics collector.
+   */
+  metrics?: INatsMetrics;
 
   /**
    * The store used for subject-based concurrency (@MaxAckPendingPerSubject) and Cron locks.
@@ -76,12 +110,6 @@ export interface NatsMQOptions {
    * Default: [1000, 2000, 5000]
    */
   retryBackoffMs?: number[];
-}
-
-export interface NatsMQMetrics {
-  increment(name: string, value?: number, labels?: Record<string, string>): void;
-  gauge(name: string, value: number, labels?: Record<string, string>): void;
-  // Further metric methods can be added here
 }
 
 export interface CronContext {

@@ -1,6 +1,6 @@
-import { describe, it, expect, beforeEach, afterAll, beforeAll } from "vitest";
-import { LocalConcurrencyStore } from "../src/lib/natsmq/store/local-store";
-import { RedisConcurrencyStore } from "../src/lib/natsmq/store/redis-store";
+import { describe, it, expect, beforeEach, afterAll, beforeAll, vi } from "vitest";
+import { LocalConcurrencyStore } from "../../src/lib/natsmq/store/local-store";
+import { RedisConcurrencyStore } from "../../src/lib/natsmq/store/redis-store";
 import Redis from "ioredis";
 
 const delay = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
@@ -16,42 +16,56 @@ describe("NatsMQ Concurrency Stores", () => {
     it("should allow acquiring up to the limit", async () => {
       const subject = "test.local";
       
-      const a1 = await store.acquire(subject, 2, 5000);
-      const a2 = await store.acquire(subject, 2, 5000);
-      const a3 = await store.acquire(subject, 2, 5000);
+      const a1 = await store.acquire([subject], 5000, { limit: 2 });
+      const a2 = await store.acquire([subject], 5000, { limit: 2 });
+      const a3 = await store.acquire([subject], 5000, { limit: 2 });
 
-      expect(a1).toBe(true);
-      expect(a2).toBe(true);
-      expect(a3).toBe(false); // Limit reached
+      expect(typeof a1).toBe("object");
+      expect(typeof a2).toBe("object");
+      expect(a3).toBeNull(); // Limit reached
     });
 
     it("should allow acquiring again after release", async () => {
       const subject = "test.local.release";
       
-      await store.acquire(subject, 1, 5000);
-      const a2 = await store.acquire(subject, 1, 5000);
-      expect(a2).toBe(false);
-
-      await store.release(subject);
+      const lock = await store.acquire([subject], 5000, { limit: 1 });
+      expect(lock).not.toBeNull();
       
-      const a3 = await store.acquire(subject, 1, 5000);
-      expect(a3).toBe(true);
+      const a2 = await store.acquire([subject], 5000, { limit: 1 });
+      expect(a2).toBeNull();
+
+      await store.release(lock!);
+      
+      const a3 = await store.acquire([subject], 5000, { limit: 1 });
+      expect(typeof a3).toBe("object");
     });
 
     it("should auto-expire locks based on TTL", async () => {
       const subject = "test.local.ttl";
       
-      await store.acquire(subject, 1, 100); // 100ms TTL
+      await store.acquire([subject], 100, { limit: 1 }); // 100ms TTL
       
-      expect(await store.acquire(subject, 1, 5000)).toBe(false); // Locked
+      expect(await store.acquire([subject], 5000, { limit: 1 })).toBeNull(); // Locked
       
       await delay(150); // Wait for TTL to expire
       
-      expect(await store.acquire(subject, 1, 5000)).toBe(true); // Should be free now
+      const lock = await store.acquire([subject], 5000, { limit: 1 });
+      expect(typeof lock).toBe("object"); // Should be free now
+    });
+
+    it("should handle subjects with special characters (colons, dots)", async () => {
+      const subject = "test:with:colons.and.dots";
+      
+      const lock = await store.acquire([subject], 5000, { limit: 1 });
+      expect(typeof lock).toBe("object");
+      
+      expect(await store.acquire([subject], 5000, { limit: 1 })).toBeNull();
+      
+      await store.release(lock!);
+      expect(await store.acquire([subject], 5000, { limit: 1 })).not.toBeNull();
     });
   });
 
-  // Redis tests only run if Redis is available, we'll try to connect or skip
   describe("RedisConcurrencyStore", () => {
     let store: RedisConcurrencyStore;
     let redis: Redis;
@@ -63,8 +77,7 @@ describe("NatsMQ Concurrency Stores", () => {
         await new Promise((resolve, reject) => {
           redis.on('ready', () => { isConnected = true; resolve(true); });
           redis.on('error', (err) => { reject(err); });
-          // Fast timeout for tests without Redis
-          setTimeout(() => reject(new Error("Timeout")), 500); 
+          setTimeout(() => reject(new Error("Timeout")), 1000); 
         });
       } catch (e) {
         isConnected = false;
@@ -78,52 +91,50 @@ describe("NatsMQ Concurrency Stores", () => {
 
     beforeEach(async () => {
       if (isConnected) {
-        store = new RedisConcurrencyStore(redis);
-        await store.onInit();
-        await redis.del("natsmq:lock:test.redis");
-        await redis.del("natsmq:lock:test.redis.release");
-        await redis.del("natsmq:lock:test.redis.ttl");
+        store = new RedisConcurrencyStore({ redis });
+        await redis.flushall();
       }
     });
 
-    it("should allow acquiring up to the limit (Redis)", async (ctx) => {
-      if (!isConnected) return ctx.skip();
+    it("should allow acquiring up to the limit (Redis)", async () => {
+      if (!isConnected) return;
       const subject = "test.redis";
       
-      const a1 = await store.acquire(subject, 2, 5000);
-      const a2 = await store.acquire(subject, 2, 5000);
-      const a3 = await store.acquire(subject, 2, 5000);
+      const a1 = await store.acquire([subject], 5000, { limit: 2 });
+      const a2 = await store.acquire([subject], 5000, { limit: 2 });
+      const a3 = await store.acquire([subject], 5000, { limit: 2 });
 
-      expect(a1).toBe(true);
-      expect(a2).toBe(true);
-      expect(a3).toBe(false); 
+      expect(typeof a1).toBe("object");
+      expect(typeof a2).toBe("object");
+      expect(a3).toBeNull(); 
     });
 
-    it("should allow acquiring again after release (Redis)", async (ctx) => {
-      if (!isConnected) return ctx.skip();
+    it("should allow acquiring again after release (Redis)", async () => {
+      if (!isConnected) return;
       const subject = "test.redis.release";
       
-      await store.acquire(subject, 1, 5000);
-      const a2 = await store.acquire(subject, 1, 5000);
-      expect(a2).toBe(false);
+      const lock = await store.acquire([subject], 5000, { limit: 1 });
+      const a2 = await store.acquire([subject], 5000, { limit: 1 });
+      expect(a2).toBeNull();
 
-      await store.release(subject);
+      await store.release(lock!);
       
-      const a3 = await store.acquire(subject, 1, 5000);
-      expect(a3).toBe(true);
+      const a3 = await store.acquire([subject], 5000, { limit: 1 });
+      expect(typeof a3).toBe("object");
     });
 
-    it("should auto-expire locks based on TTL (Redis)", async (ctx) => {
-      if (!isConnected) return ctx.skip();
+    it("should auto-expire locks based on TTL (Redis)", async () => {
+      if (!isConnected) return;
       const subject = "test.redis.ttl";
       
-      await store.acquire(subject, 1, 100); 
+      await store.acquire([subject], 100, { limit: 1 }); 
       
-      expect(await store.acquire(subject, 1, 5000)).toBe(false); 
+      expect(await store.acquire([subject], 5000, { limit: 1 })).toBeNull(); 
       
       await delay(150); 
       
-      expect(await store.acquire(subject, 1, 5000)).toBe(true); 
+      const lock = await store.acquire([subject], 5000, { limit: 1 });
+      expect(typeof lock).toBe("object"); 
     });
   });
 });

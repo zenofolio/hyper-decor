@@ -1,103 +1,118 @@
+import { Redis } from "ioredis";
 import { IConcurrencyStore } from "../types";
-import type Redis from "ioredis";
+import { randomUUID } from "crypto";
+import { ILock, LockAbortSignal, runUsing, LockOptions } from "../../lock/lock";
 
-export class RedisConcurrencyStore implements IConcurrencyStore {
-  private client: Redis | null = null;
-  private prefix = "natsmq:lock:";
+export interface RedisConcurrencyStoreOptions {
+  redis: Redis;
+  prefix?: string;
+}
 
+/**
+ * Extended Redis interface to support custom Lua commands.
+ */
+interface NatsMQRedis extends Redis {
+  natsmq_acquire(key: string, limit: number, ttl: number, lockId: string): Promise<number>;
+  natsmq_release(key: string, lockId: string): Promise<number>;
+}
+
+class RedisLock implements ILock {
   constructor(
-    private providedClient?: Redis | null,
-    private redisOptions?: any
+    private store: RedisConcurrencyStore,
+    public readonly resources: string[],
+    public readonly value: string,
+    public expiration: number
   ) { }
 
-  async onInit(): Promise<void> {
-    if (this.providedClient) {
-      this.client = this.providedClient;
-      return;
-    }
-
-    try {
-      const IORedis = await import("ioredis");
-      const RedisConstructor = (IORedis as any).Redis || (IORedis as any).default || IORedis;
-      this.client = new (RedisConstructor as any)(this.redisOptions || {});
-    } catch (e) {
-      throw new Error("[NatsMQ] RedisConcurrencyStore requires 'ioredis' package. Please install it.");
-    }
+  async release(): Promise<void> {
+    await this.store.release(this);
   }
 
-  async close(): Promise<void> {
-    if (this.client && !this.providedClient) {
-      await this.client.quit();
+  async extend(duration: number): Promise<ILock> {
+    return this.store.extend(this, duration);
+  }
+}
+
+export class RedisConcurrencyStore implements IConcurrencyStore {
+  private redis: NatsMQRedis;
+  private prefix: string;
+
+  constructor(options: RedisConcurrencyStoreOptions) {
+    this.redis = options.redis as NatsMQRedis;
+    this.prefix = options.prefix || "natsmq:concurrency";
+    this.setupScripts();
+  }
+
+  private setupScripts() {
+    this.redis.defineCommand("natsmq_acquire", {
+      numberOfKeys: 1,
+      lua: `
+        local zset_key = KEYS[1]
+        local limit = tonumber(ARGV[1])
+        local ttl_ms = tonumber(ARGV[2])
+        local lock_id = ARGV[3]
+        local time = redis.call('TIME')
+        local now_ms = (tonumber(time[1]) * 1000) + math.floor(tonumber(time[2]) / 1000)
+        redis.call('ZREMRANGEBYSCORE', zset_key, '-inf', now_ms)
+        if redis.call('ZCARD', zset_key) >= limit then return 0 end
+        redis.call('ZADD', zset_key, now_ms + ttl_ms, lock_id)
+        return 1
+      `
+    });
+
+    this.redis.defineCommand("natsmq_release", {
+      numberOfKeys: 1,
+      lua: `return redis.call('ZREM', KEYS[1], ARGV[1])`
+    });
+  }
+
+  private getRedisKey(subject: string): string {
+    return `${this.prefix}:${subject}`;
+  }
+
+  async acquire(resources: string[], duration: number, options?: LockOptions): Promise<ILock | null> {
+    const subject = resources[0];
+    const limit = options?.limit || 1;
+    const key = this.getRedisKey(subject);
+    const lockId = randomUUID();
+    const result = await this.redis.natsmq_acquire(key, limit, duration, lockId);
+    if (result === 1) {
+      return new RedisLock(this, [subject], lockId, Date.now() + duration);
     }
+    return null;
   }
 
-  async acquire(subject: string, limit: number, ttlMs: number): Promise<boolean> {
-    if (!this.client) return false;
-    
-    const key = `${this.prefix}${subject}`;
-    const now = Date.now();
-    const expiry = now + ttlMs;
-
-    // Use a Lua script to atomically check the limit and add a lock with TTL
-    // We use a Redis ZSET (Sorted Set) where the score is the expiration timestamp.
-    const luaScript = `
-      local key = KEYS[1]
-      local limit = tonumber(ARGV[1])
-      local now = tonumber(ARGV[2])
-      local expiry = tonumber(ARGV[3])
-      local memberId = ARGV[4]
-
-      -- Remove expired locks
-      redis.call('ZREMRANGEBYSCORE', key, '-inf', now)
-
-      -- Check current count
-      local currentCount = redis.call('ZCARD', key)
-      if currentCount >= limit then
-        return 0 -- Limit reached
-      end
-
-      -- Add the new lock
-      redis.call('ZADD', key, expiry, memberId)
-      
-      -- Set global key TTL to avoid orphaned keys
-      redis.call('PEXPIRE', key, expiry - now + 1000)
-
-      return 1 -- Success
-    `;
-
-    // A random member ID to differentiate multiple locks for the same subject
-    const memberId = `${now}-${Math.random().toString(36).substring(2, 9)}`;
-
-    const result = await this.client.eval(luaScript, 1, key, limit, now, expiry, memberId);
-    
-    return result === 1;
+  async release(lock: ILock, _options?: LockOptions): Promise<void> {
+    await this.redis.natsmq_release(this.getRedisKey(lock.resources[0]), lock.value);
   }
 
-  async release(subject: string): Promise<void> {
-    if (!this.client) return;
+  async extend(lock: ILock, duration: number, _options?: LockOptions): Promise<ILock> {
+    const key = this.getRedisKey(lock.resources[0]);
+    const success = await this.redis.natsmq_acquire(key, 999999, duration, lock.value);
+    if (!success) throw new Error("Could not extend lock");
+    lock.expiration = Date.now() + duration;
+    return lock;
+  }
 
-    const key = `${this.prefix}${subject}`;
-    
-    // Simplest release: we just remove the oldest lock (lowest score)
-    // In a fully robust implementation, acquire should return the memberId 
-    // and release should use it, but for our queue-like semaphore this works.
-    await this.client.zpopmin(key);
+  using<T>(resources: string[], duration: number, routine: (signal: LockAbortSignal) => Promise<T>): Promise<T>;
+  using<T>(resources: string[], duration: number, settings: LockOptions, routine: (signal: LockAbortSignal) => Promise<T>): Promise<T>;
+  async using<T>(
+    resources: string[],
+    duration: number,
+    routineOrSettings: LockOptions | ((signal: LockAbortSignal) => Promise<T>),
+    routine?: (signal: LockAbortSignal) => Promise<T>
+  ): Promise<T> {
+    return runUsing(this, resources, duration, routineOrSettings, routine);
   }
 
   async getGlobalActiveCount(): Promise<number> {
-    // This is expensive in Redis to scan all keys. 
-    // For a real production app, we might maintain a global counter,
-    // but calculating it precisely across all subjects requires scanning.
-    // For now, we return 0 or implement a global counter in Lua.
-    return 0; // Placeholder: Not strictly necessary for core functionality
+    const keys = await this.redis.keys(`${this.prefix}:*`);
+    let total = 0;
+    for (const key of keys) total += await this.redis.zcard(key);
+    return total;
   }
 
   async getActiveCount(subject: string): Promise<number> {
-    if (!this.client) return 0;
-    const key = `${this.prefix}${subject}`;
-    const now = Date.now();
-    
-    await this.client.zremrangebyscore(key, '-inf', now);
-    return await this.client.zcard(key);
+    return await this.redis.zcard(this.getRedisKey(subject));
   }
 }

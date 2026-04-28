@@ -12,6 +12,7 @@ import { NatsMQEngine } from "./engine";
 import { CronScheduler } from "./cron";
 import { DefaultNatsMQMetrics } from "./metrics";
 import { NatsMQOptions, NatsMQMetrics } from "./types";
+import { LocalConcurrencyStore } from "./store/local-store";
 
 export class NatsMQ {
   public engine: NatsMQEngine;
@@ -19,10 +20,10 @@ export class NatsMQ {
   public metrics: NatsMQMetrics;
 
   constructor(options: NatsMQOptions) {
-    this.engine = new NatsMQEngine(options);
-    this.metrics = new DefaultNatsMQMetrics();
+    this.metrics = options.metrics || new DefaultNatsMQMetrics();
+    this.engine = new NatsMQEngine({ ...options, metrics: this.metrics });
     this.cron = new CronScheduler(
-      options.concurrencyStore || new LocalConcurrencyStore(), 
+      options.concurrencyStore || new LocalConcurrencyStore(),
       this.metrics
     );
   }

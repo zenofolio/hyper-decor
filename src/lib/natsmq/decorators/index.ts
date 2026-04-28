@@ -1,7 +1,7 @@
 import "reflect-metadata";
 import { z } from "zod";
 
-import type { ConsumerConfig } from "nats";
+import type { ConsumerConfig, JsMsg } from "nats";
 
 // --- Metadata Keys ---
 export const NATSMQ_CLIENT_METADATA = Symbol("NATSMQ_CLIENT_METADATA");
@@ -34,6 +34,7 @@ export interface NatsSubscriptionMeta {
 export interface NatsConcurrencyMeta {
   pattern: string;
   limit: number;
+  ttlMs?: number;
 }
 
 export interface NatsCronMeta {
@@ -48,7 +49,7 @@ export interface NatsCronMeta {
  * Injects the NatsMQEngine instance into a class property.
  */
 export function NatsClient(): PropertyDecorator {
-  return (target: Object, propertyKey: string | symbol) => {
+  return (target: object, propertyKey: string | symbol) => {
     Reflect.defineMetadata(NATSMQ_CLIENT_METADATA, true, target, propertyKey);
   };
 }
@@ -61,8 +62,8 @@ export function OnNatsMessage<T extends z.ZodTypeAny>(
   subject: string,
   schema: T,
   options: NatsSubscriptionOptions = {}
-): MethodDecorator {
-  return (target: Object, propertyKey: string | symbol) => {
+) {
+  return (target: object, propertyKey: any, descriptor?: any) => {
     const existing: NatsSubscriptionMeta[] = Reflect.getMetadata(NATSMQ_SUBSCRIPTION_METADATA, target.constructor) || [];
     existing.push({
       methodName: propertyKey as string,
@@ -84,8 +85,8 @@ export function OnNatsRequest<TReq extends z.ZodTypeAny, TRes extends z.ZodTypeA
   reqSchema: TReq,
   resSchema: TRes,
   options: NatsSubscriptionOptions = {}
-): MethodDecorator {
-  return (target: Object, propertyKey: string | symbol) => {
+) {
+  return (target: object, propertyKey: string | symbol, descriptor?: TypedPropertyDescriptor<any>) => {
     const existing: NatsSubscriptionMeta[] = Reflect.getMetadata(NATSMQ_SUBSCRIPTION_METADATA, target.constructor) || [];
     existing.push({
       methodName: propertyKey as string,
@@ -103,8 +104,8 @@ export function OnNatsRequest<TReq extends z.ZodTypeAny, TRes extends z.ZodTypeA
  * Limits concurrent processing of messages that match the subject pattern.
  * Uses the exact subject of the message as the lock key.
  */
-export function MaxAckPendingPerSubject(pattern: string, limit: number): MethodDecorator {
-  return (target: Object, propertyKey: string | symbol) => {
+export function MaxAckPendingPerSubject(pattern: string, limit: number) {
+  return (target: object, propertyKey: any) => {
     const meta: NatsConcurrencyMeta = { pattern, limit };
     // We attach it directly to the method, since it modifies the specific handler's behavior
     Reflect.defineMetadata(NATSMQ_CONCURRENCY_METADATA, meta, target, propertyKey);
@@ -115,8 +116,8 @@ export function MaxAckPendingPerSubject(pattern: string, limit: number): MethodD
  * Schedules a method to run periodically via a distributed lock.
  * Ensures only one instance runs the cron across the cluster.
  */
-export function OnCron(schedule: string, options: CronOptions): MethodDecorator {
-  return (target: Object, propertyKey: string | symbol) => {
+export function OnCron(schedule: string, options: CronOptions) {
+  return (target: object, propertyKey: any) => {
     const existing: NatsCronMeta[] = Reflect.getMetadata(NATSMQ_CRON_METADATA, target.constructor) || [];
     existing.push({
       methodName: propertyKey as string,
