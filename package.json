@@ -44,8 +44,11 @@
     "unplugin-swc": "^1.5.9",
     "vitest": "^4.0.18"
   },
+  "publishConfig": {
+    "access": "public",
+    "registry": "https://registry.npmjs.org/"
+  },
   "dependencies": {
-    "@zenofolio/hyper-decor": "file:",
     "croner": "^10.0.1",
     "file-type": "^19.5.0",
     "reflect-metadata": "^0.2.2",
