@@ -2,44 +2,58 @@
 
 NatsMQ provides one of the strictest concurrency enforcement mechanisms for distributed workers. It ensures that a specific subject is never processed by more than `N` workers simultaneously across the entire cluster.
 
-## How it Works
+## 1. Per-Subject Concurrency
 
-NatsMQ uses a dual-layer strategy to manage load:
-
-### 1. Global Locking (Redis)
-When a message arrives, the worker attempts to acquire an atomic slot in the `ConcurrencyStore` (Redis). 
-- If a slot is available, the worker proceeds.
-- If the limit is reached, the worker **backs off**.
-
-### 2. Local Retry Queue (Backoff)
-Unlike traditional "aggressive NAKing" which causes high CPU and network overhead, NatsMQ uses a **Local Retry Queue**. 
-- If a lock cannot be acquired, the message is held in local memory for a few milliseconds (with exponential backoff).
-- This prevents "Nats Storms" where messages bounce between workers infinitely.
-
-## Usage
-
-Use the `@MaxAckPendingPerSubject` decorator. It supports wildcards.
+Use the `@MaxAckPendingPerSubject` decorator. In 2.0, this is best used with **Contracts** to avoid string magic and ensure consistency.
 
 ```typescript
-class OrderWorker {
-  // Only 1 order for the SAME ID can be processed at once in the whole cluster
-  @OnNatsMessage("orders.process.*", OrderSchema, { stream: "ORDERS" })
-  @MaxAckPendingPerSubject("orders.process.*", 1) 
-  async handleOrder(data: any) {
-    // ...
-  }
-
-  // Only 20 heavy reports can be processed across all servers
-  @OnNatsMessage("reports.heavy.>", ReportSchema, { stream: "REPORTS" })
-  @MaxAckPendingPerSubject("reports.heavy.>", 20)
-  async handleReport(data: any) {
-    // ...
+@HyperController("/workers")
+class MyWorker {
+  // Strict limit of 5 concurrent executions for this specific contract across the CLUSTER
+  @OnNatsMessage(OrderCreated)
+  @MaxAckPendingPerSubject(OrderCreated, 5) 
+  async handle(data: any) {
+    // Process...
   }
 }
 ```
 
-## Scaling
-NatsMQ automatically uses **shared durable consumers**. This means:
-- If you have 10 instances of a service, NATS will balance the messages among them.
-- If an instance crashes, NATS will redeliver the message to another instance after the `ack_wait` timeout.
-- The `RedisConcurrencyStore` ensures that even during redelivery, the concurrency limit is strictly respected.
+### How it works (Backoff Strategy)
+Unlike traditional "aggressive NAKing", NatsMQ uses a **Local Retry Queue**. If a lock cannot be acquired, the message is held in local memory for a few milliseconds with exponential backoff. This prevents "NATS Storms" where messages bounce between workers infinitely, wasting CPU and bandwidth.
+
+---
+
+## 2. Distributed Crons (Mutual Exclusion)
+
+The `@OnCron` decorator provides built-in cluster-wide mutual exclusion using the configured `ConcurrencyStore` (Redis).
+
+### Stability Mechanisms
+To ensure only one node executes a cron at a given time:
+- **Bucket Rounding**: Triggers are aligned to the nearest second. This prevents "double-firing" caused by millisecond-level clock drift between servers.
+- **Persistent Locking**: The lock is **not** released immediately after execution. It persists for the duration of the `lockTtlMs` to ensure late-triggering nodes don't find the slot "empty".
+
+```typescript
+@HyperService()
+class GlobalCron {
+  // Guaranteed to run ONLY ONCE per minute across the whole cluster
+  @OnCron("cleanup_task", "0 * * * *", { lockTtlMs: 30000 })
+  async handleCleanup() {
+    console.log("Cleanup started...");
+  }
+}
+```
+
+---
+
+## 3. Storage Strategy
+
+You can choose where the concurrency state is stored:
+
+- **LocalConcurrencyStore**: Perfect for single-instance apps.
+- **RedisConcurrencyStore**: Required for distributed clusters.
+
+```typescript
+service.configure({
+  concurrencyStore: new RedisConcurrencyStore({ redis })
+});
+```

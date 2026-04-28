@@ -6,19 +6,63 @@ High-performance decorator library for [HyperExpress](https://github.com/kartikk
 
 ---
 
+## 📚 Documentation Index
+
+| Topic | Description | Link |
+|-------|-------------|------|
+| **Getting Started** | Installation and Full App Example | [Read Guide](./docs/getting-started.md) |
+| **Architecture** | Modules, Controllers and Services | [Read Guide](./docs/architecture.md) |
+| **NatsMQ (Messaging)** | Contracts, Fluent API and Request-Reply | [Read Guide](./docs/natsmq.md) |
+| **Concurrency Control** | Distributed Locking and Crons | [Read Guide](./docs/concurrency.md) |
+| **OpenAPI** | Automatic Swagger Spec Generation | [Read Guide](./docs/openapi.md) |
+
+---
+
+## ⚡ Quick Examples
+
+### 1. Simple Messaging (Pub/Sub)
+Decouple your logic instantly across services or processes.
+
+```typescript
+@HyperService()
+class NotificationSvc {
+  @OnMessage("user.signup")
+  async welcome(user: any) {
+    console.log(`Welcome ${user.email}!`);
+  }
+}
+
+// Emit from any Controller or Service
+MessageBus.emit("user.signup", { email: "zeno@example.com" });
+```
+
+### 2. Distributed Concurrency (NatsMQ)
+Ensure strict execution limits across your entire cluster.
+
+```typescript
+@HyperController("/orders")
+class OrderProcessor {
+  @OnNatsMessage(OrderCreated)
+  @MaxAckPendingPerSubject(OrderCreated, 1) // Only 1 worker at a time cluster-wide
+  async process(order: any) {
+    // Critical section safe from race conditions
+    await performHeavyTask(order);
+  }
+}
+```
+
+---
+
 ## Key Features
 
 - **Modular Architecture**: Organize your logic into `HyperApp`, `HyperModule`, `HyperController`, and `HyperService`.
 - **Reactive Messaging (`@OnMessage`)**: Integrated Pub/Sub system for cross-service and cross-process communication.
+- **Contract-First Design**: Eliminate "string magic" by using typed contract objects.
 - **Native Idempotency**: Prevent duplicate processing with TTL-based stores (In-Memory or Redis).
 - **Distributed Transports**: Native support for **NATS** and **Redis** with lazy loading.
-- **Message Interceptors**: Global hooks to intercept, trace, or modify messages on emission and reception.
-- **Smart Routing**: Capability to emit messages to multiple transports simultaneously (Broadcast/Bridge) or target a specific transport.
-- **Extensible Lifecycle**: Initialization hooks (`onBeforeInit`, `onAfterInit`) for full control over the application tree.
-- **OpenAPI Integration**: Automatic generation of OpenAPI 3.0 specifications based on classes and decorators.
+- **Concurrency Control**: Cluster-wide limits via `@MaxAckPendingPerSubject`.
+- **OpenAPI Integration**: Automatic generation of OpenAPI 3.0 specifications.
 - **Dependency Injection**: Deep dependency resolution powered by `tsyringe`.
-- **Stream-based File Handling**: Efficient file upload validation and processing using streams.
-- **Observability & Logging**: Standardized `ILogger` interface for monitoring connections, message flow, and errors.
 
 ---
 
@@ -32,358 +76,62 @@ npm install nats ioredis
 
 ---
 
-## Distributed Messaging
+## Distributed Messaging (Transports)
 
-`hyper-decor` makes it easy to create distributed systems or event-driven architectures without complex configuration.
+`hyper-decor` supports multiple transports out of the box with zero-configuration switching.
 
-### Listening to Messages
-Use the `@OnMessage` decorator on any `HyperService`. You can also inject transport-specific configurations using dedicated decorators.
-
-```typescript
-@HyperService()
-class NotificationService {
-  // Standard subscription
-  @OnMessage("user.registered")
-  async onUserRegistered(data: UserData) {
-    console.log(`Notifying: ${data.email}`);
-  }
-
-  // Load-balanced NATS Queue Group
-  @OnMessage("orders.*")
-  @OnNatsOptions({ queue: "workers" })
-  async processOrder(order: any) {
-    // Only one worker in the "workers" group will receive this message
-  }
-
-  // Redis Stream with Consumer Group
-  @OnMessage("analytics.hit")
-  @OnRedisOptions({ stream: { group: "analytics-group", consumer: "worker-1" } })
-  async trackHit(hit: any) {
-    // Durable streaming with acknowledgements
-  }
-}
-```
-
-### Configuring Transports
-`hyper-decor` supports multiple transports out of the box.
-
-*   **NATS**: Supports standard Pub/Sub and **JetStream** (durable streams/consumers).
-*   **Redis**: Supports standard Pub/Sub and **Redis Streams** (with consumer groups).
 *   **Internal**: Ultra-fast, zero-allocation Trie-based router for same-process communication.
+*   **NATS**: Supports standard Pub/Sub and **JetStream** (durable streams/consumers).
+*   **Redis**: Supports standard Pub/Sub and **Redis Streams**.
 
 ```typescript
-import { HyperApp, NatsTransport, RedisTransport } from "@zenofolio/hyper-decor";
-
 @HyperApp({
-  modules: [UserModule],
   transports: [
-    new NatsTransport({ 
-      servers: "nats://localhost:4222",
-      jetstream: true // Enable JetStream features
-    }),
+    new NatsTransport({ servers: "nats://localhost:4222", jetstream: true }),
     new RedisTransport({ host: "localhost", port: 6379 })
   ]
 })
 class Application {}
 ```
 
-### Emission and Routing
-The `MessageBus` allows sending messages through all transports or a specific one.
-
-```typescript
-import { MessageBus, Transport } from "@zenofolio/hyper-decor";
-
-// Sends to all registered transports (Broadcast/Bridge)
-await MessageBus.emit("user.registered", { id: 1, email: "test@test.com" });
-
-// Targeted routing (using the enum or string)
-await MessageBus.emit("order.created", data, { transport: Transport.NATS });
-await MessageBus.emit("urgent.alert", data, { transport: Transport.REDIS });
-```
-
 ---
 
-## 🚀 NatsMQ: Next-Gen Messaging Engine
+## 🚀 NatsMQ: Contract-First Engine
 
-For projects requiring high-fidelity concurrency control and strict data integrity, `hyper-decor` includes **NatsMQ**, a specialized engine built on NATS JetStream.
-
-### Key Capabilities
-- **Contract-First Design**: Define messages as typed objects to eliminate "string magic".
-### 🚀 NatsMQ (Distributed Messaging)
-
-Type-safe, contract-first messaging with built-in concurrency control and distributed locking.
+NatsMQ is the recommended engine for high-fidelity messaging. It uses a Fluent API to define strictly typed contracts.
 
 ```typescript
-import { defineQueue, OnNatsMessage, MaxAckPendingPerSubject } from "@zenofolio/hyper-decor";
+// 1. Define your domain
+const Orders = defineQueue("orders", { stream: "ORDERS" });
 
-// 1. Define common options at the Queue level (inheritable)
-const Orders = defineQueue("orders", { stream: "ORDERS_STREAM" });
-
-// 2. Define contracts (they inherit the stream from the factory)
+// 2. Define contracts with Zod validation
 export const OrderCreated = Orders.define("created", z.object({ id: z.string() }));
 
-// 3. Optional: Use Fluent API for ergonomic overrides
-export const PriorityJob = Orders.define("priority", z.object({ id: z.number() }))
-  .withMaxDeliver(5); 
-
-@HyperController("/orders")
-class OrderSvc {
-  @OnNatsMessage(OrderCreated)
-  @MaxAckPendingPerSubject(OrderCreated, 5) // Enforced cluster-wide
-  async handleOrder(order: z.infer<typeof OrderCreated.schema>) {
-    console.log("Processing order:", order.id);
-  }
+// 3. Listen with full type-safety
+@OnNatsMessage(OrderCreated)
+async handle(order: z.infer<typeof OrderCreated.schema>) {
+  // order.id is type-safe
 }
 ```
 
-[Read more in the NatsMQ Documentation](./docs/getting-started.md)
-
----
-
-## Observability & Logging
-
-`hyper-decor` includes a flexible logging system to monitor the behavior of your transports and messaging system.
-
-### Standard Logger Interface
-
-The library uses a standard `ILogger` interface. By default, it uses an internal logger that outputs to the console with clear prefixes like `[HYPER-INFO]`, `[HYPER-DEBUG]`.
-
-```typescript
-export interface ILogger {
-  info(message: string, ...context: any[]): void;
-  warn(message: string, ...context: any[]): void;
-  error(message: string, ...context: any[]): void;
-  debug(message: string, ...context: any[]): void;
-}
-```
-
-### Customizing the Logger
-
-You can provide a custom logger instance to any transport constructor:
-
-```typescript
-const myLogger = {
-  info: (msg) => console.log(`MyLog: ${msg}`),
-  error: (msg, err) => console.error(`Error: ${msg}`, err),
-  // ... rest of the methods
-};
-
-const nats = new NatsTransport({ servers: "nats://localhost:4222" }, myLogger);
-```
-
-Or register a global logger in the `tsyringe` container using the `LOGGER_TOKEN`:
-
-```typescript
-import { container } from "tsyringe";
-import { LOGGER_TOKEN } from "@zenofolio/hyper-decor";
-
-container.register(LOGGER_TOKEN, { useValue: myLogger });
-```
-
-### Log Levels
-- **INFO**: Connection established, subscriptions activated.
-- **DEBUG**: Message received/emitted (includes topic name).
-- **ERROR**: Handling errors, connection failures, parsing errors.
+[Full Messaging Documentation](./docs/natsmq.md)
 
 ---
 
 ## Lifecycle Hooks
 
-`hyper-decor` provides several hooks to manage initialization and preparation.
+Manage your application initialization with granular control.
 
-### 1. `onInit()` (Services & Modules)
-The primary hook for any `@injectable`, `@HyperService`, or `@HyperModule`. It runs once during the deep-resolution process.
+- **`onInit()`**: Runs when a service/module is resolved.
+- **`onPrepare()`**: Runs after the entire tree is ready, before server start.
 
 ```typescript
 @HyperService()
-class CacheService implements OnInit {
+class DbService implements OnInit {
   async onInit() {
-    // Runs when the service is resolved and ready
-    console.log("Connecting to database...");
+    await this.connect();
   }
 }
-```
-
-### 2. `onPrepare()` (Application)
-Supported only on the `@HyperApp` class. It runs after the entire application tree has been prepared and routes are registered, but before the server starts listening (if handled manually).
-
-```typescript
-@HyperApp({ ... })
-class MainApp {
-  async onPrepare() {
-    console.log("Server is ready to receive traffic.");
-  }
-}
-```
-
-### 3. Global Hooks (`IHyperHooks`)
-You can provide global hooks in the `@HyperApp` configuration to intercept every component's initialization.
-
----
-
-## Dual Transport Strategy (Local vs Distributed)
-
-For performance-critical systems, you can combine the ultra-fast **Internal** transport with distributed ones like **NATS**.
-
-### 1. Registration
-```typescript
-import { HyperApp, Transport, InternalTransport, NatsTransport } from "@zenofolio/hyper-decor";
-
-@HyperApp({
-  transports: [
-    InternalTransport, // Ultra-fast (microsecond latency)
-    new NatsTransport({ servers: "nats://..." }) // Global scale
-  ]
-})
-class Application {}
-```
-
-### 2. Targeted Emission
-Use `emitLocal` for same-process events or the `Transport` enum for specific targets.
-
-```typescript
-import { MessageBus, Transport } from "@zenofolio/hyper-decor";
-
-// 🚀 Maximum performance (stays in memory)
-await MessageBus.emitLocal("cache.invalidate", { id: 1 });
-
-// 🌐 Distributed event
-await MessageBus.emit("user.created", data, { transport: Transport.NATS });
-```
-
-### 3. Targeted Subscription
-Use `@OnInternal` to ensure a listener only reacts to local events, avoiding network overhead or double-delivery.
-
-```typescript
-@HyperService()
-class SpeedService {
-  @OnInternal("critical.task")
-  async handleQuickly(data: any) {
-    // Runs only via InternalTransport
-  }
-
-  @OnTransport(Transport.NATS, "global.event")
-  async handleGlobal(data: any) {
-    // Runs only via NATS
-  }
-}
-```
-
----
-
-## Message Envelope (Tracing & Idempotency)
-
-Every message in `hyper-decor` is automatically wrapped in a standardized envelope. This provides built-in support for tracing and reliable delivery without complex configuration.
-
-### The Envelope Structure
-```typescript
-interface IMessageEnvelope<T> {
-  i: string;  // Unique Message ID (UUID)
-  t: number;  // Creation Timestamp
-  c?: string; // Correlation ID (for cross-service tracing)
-  m: T;       // The actual payload
-}
-```
-
-### Transparent Usage
-By default, your handlers receive only the payload, making it compatible with any external message source.
-
-```typescript
-@OnMessage("user.signup")
-async handle(data: UserDto) {
-  // 'data' is the unwrapped payload
-}
-```
-
-### Accessing Metadata
-If you need to access the ID or Timestamp (e.g., for logging or preventing duplicate processing), simply add a second argument:
-
-```typescript
-@OnMessage("critical.payment")
-async handle(data: PaymentDto, envelope: IMessageEnvelope<PaymentDto>) {
-  console.log(`Processing message ${envelope.i} created at ${envelope.t}`);
-}
-```
-
----
-
-## Native Idempotency & Interceptors
-
-`hyper-decor` includes a robust, built-in idempotency system to prevent duplicate message processing across all transports and subscribers.
-
-### Global Configuration
-Enable idempotency at the application level. By default, it uses an in-memory store with a 5-minute TTL.
-
-```typescript
-import { HyperApp, RedisIdempotencyStore } from "@zenofolio/hyper-decor";
-
-@HyperApp({
-  idempotency: {
-    enabled: true,
-    ttl: 300000, // 5 minutes in ms
-    // Optional: Use Redis for distributed idempotency
-    store: RedisIdempotencyStore, 
-    redisOptions: { host: 'localhost' }
-  }
-})
-class Application {}
-```
-
-### Local Control
-You can override or disable idempotency for specific subscribers via the `@OnMessage` options.
-
-```typescript
-@HyperService()
-class OrderService {
-  // Custom TTL for this specific listener
-  @OnMessage("order.process", { idempotency: { ttl: 60000 } })
-  async handleOrder(data: any) { ... }
-
-  // Explicitly disable idempotency for this listener
-  @OnMessage("logs.collect", { idempotency: false })
-  async handleLogs(data: any) { ... }
-}
-```
-
-### Multiple Subscribers
-The system automatically handles multiple subscribers for the same topic. Each unique subscriber will process the message exactly once, even if they share the same idempotency store.
-
-### Custom Idempotency Keys
-By default, the system uses the automatic `messageId` (UUID). You can provide your own key (e.g., from a business process) during emission.
-
-```typescript
-await MessageBus.emit("payment.confirm", data, { 
-  idempotencyKey: `payment_${orderId}` 
-});
-```
-
-### Message Interceptors
-Implement global cross-cutting concerns (logging, tracing, filtering) using a single interceptor.
-
-```typescript
-import { injectable } from "tsyringe";
-import { IMessageInterceptor, IMessageEnvelope } from "@zenofolio/hyper-decor";
-
-@injectable()
-class MyInterceptor implements IMessageInterceptor {
-  async onEmit(topic: string, envelope: IMessageEnvelope, options: any) {
-    // Modify envelope or add tracing headers
-  }
-
-  async onReceive(topic: string, envelope: IMessageEnvelope, options: any): Promise<boolean> {
-    // Return false to cancel message delivery
-    return true;
-  }
-}
-```
-
-Register your interceptor in the `@HyperApp` decorator:
-
-```typescript
-@HyperApp({
-  interceptor: MyInterceptor
-})
-class Application {}
 ```
 
 ---
@@ -393,31 +141,11 @@ class Application {}
 A NestJS-inspired utility to facilitate isolated unit and integration testing.
 
 ```typescript
-import { HyperTest } from "@zenofolio/hyper-decor";
-
-const module = await HyperTest.createTestingModule({
-    imports: [AppModule]
-})
-.overrideProvider(DatabaseService).useValue(mockDb)
-.compile();
+const module = await HyperTest.createTestingModule({ imports: [AppModule] })
+  .overrideProvider(DatabaseService).useValue(mockDb)
+  .compile();
 
 const service = module.get(MyService);
-```
-
----
-
-## File Upload (`@File`)
-
-```typescript
-@Post("/upload")
-async upload(
-  @File("avatar", {
-    maxFileSize: 5 * 1024 * 1024,
-    allowedExtensions: ["png", "jpg"]
-  }) file: UploadedFile
-) {
-  return { filename: file.filename };
-}
 ```
 
 ---

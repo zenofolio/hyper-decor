@@ -1,73 +1,85 @@
-# Getting Started with NatsMQ
+# Getting Started
 
-NatsMQ is a high-performance, distributed message queue engine built on top of NATS JetStream, featuring strict concurrency control and type safety.
+This guide shows you how to build a complete application using `hyper-decor`.
 
 ## 1. Installation
 
-Ensure you have the peer dependencies installed:
-
 ```bash
-npm install nats ioredis zod reflect-metadata
+npm install @zenofolio/hyper-decor nats ioredis zod reflect-metadata
 ```
 
-## 2. Basic Configuration
+## 2. Full Application Example
 
-The core of the system is the `NatsMQService`. You should configure it at the entry point of your application.
-
-```typescript
-import { NatsMQService, RedisConcurrencyStore, RedisMetrics } from "@zenofolio/hyper-decor";
-import { Redis } from "ioredis";
-
-async function bootstrap() {
-  const redis = new Redis("redis://localhost:6379");
-  
-  const service = NatsMQService.getInstance();
-  service.configure({
-    servers: "nats://localhost:4222",
-    concurrencyStore: new RedisConcurrencyStore({ redis }),
-    metrics: new RedisMetrics({ redis })
-  });
-
-  await service.onInit();
-}
-```
-
-## 3. Defining a Worker
-
-Use decorators to subscribe to subjects. NatsMQ automatically handles stream provisioning and consumer group balancing.
+Here is a complete structure including a Module, a Controller with REST, and a Service with NATS messaging.
 
 ```typescript
-import { OnNatsMessage, MaxAckPendingPerSubject } from "@zenofolio/hyper-decor";
-import { z } from "zod";
+import { 
+  HyperApp, HyperModule, HyperController, HyperService,
+  Get, Post, Body, OnNatsMessage, NatsMQService 
+} from "@zenofolio/hyper-decor";
 
-const UserSchema = z.object({ id: z.string(), name: z.string() });
+// --- 1. Define a Service with NATS logic ---
+@HyperService()
+class OrderService {
+  @OnNatsMessage("orders.created")
+  async handleNewOrder(data: any) {
+    console.log("Order received via NATS:", data);
+  }
 
-class UserWorker {
-  @OnNatsMessage("users.created", UserSchema, { stream: "USERS" })
-  @MaxAckPendingPerSubject("users.created", 5) // Strict limit of 5 concurrent users across the cluster
-  async handleUser(data: z.infer<typeof UserSchema>) {
-    console.log(`Processing user: ${data.name}`);
-    // Do work...
+  async create(data: any) {
+    // Business logic
+    return { id: "123", ...data };
   }
 }
 
-// Register the worker instance
-service.registerInstance(new UserWorker());
+// --- 2. Define a Controller for REST ---
+@HyperController("/orders")
+class OrderController {
+  constructor(private orderSvc: OrderService) {}
+
+  @Get("/:id")
+  async getOrder() {
+    return { id: "123", status: "ok" };
+  }
+
+  @Post("/")
+  async createOrder(@Body() body: any) {
+    return this.orderSvc.create(body);
+  }
+}
+
+// --- 3. Organize into a Module ---
+@HyperModule({
+  controllers: [OrderController],
+  providers: [OrderService]
+})
+class OrderModule {}
+
+// --- 4. Bootstrap the Application ---
+@HyperApp({
+  modules: [OrderModule]
+})
+class MainApp {
+  async onPrepare() {
+    // Configure NATS after the app tree is ready
+    const natsSvc = NatsMQService.getInstance();
+    natsSvc.configure({ servers: "nats://localhost:4222" });
+    await natsSvc.onInit();
+    
+    console.log("🚀 Application and NATS are ready!");
+  }
+}
 ```
 
-## 4. Publishing Messages
+## 3. Distributed Setup (Redis & NATS)
 
-Validation happens at the source. If the data doesn't match the schema, the promise will reject before reaching NATS.
+For production, you usually want to configure a `ConcurrencyStore` to handle distributed locks and metrics.
 
 ```typescript
-const engine = service.mq.engine;
-
-await engine.publish("users.created", UserSchema, {
-  id: "123",
-  name: "John Doe"
+const natsSvc = NatsMQService.getInstance();
+natsSvc.configure({
+  servers: "nats://localhost:4222",
+  concurrencyStore: new RedisConcurrencyStore({ redis }),
+  metrics: new RedisMetrics({ redis })
 });
 ```
-
----
-
-Next: [Learn about Contracts](./contracts.md) to eliminate "String Magic".
