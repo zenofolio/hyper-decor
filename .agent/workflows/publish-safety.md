@@ -1,3 +1,7 @@
+---
+description: 
+---
+
 # Skill: Publish Safety Checklist
 
 This skill ensures that every update and publication of `@zenofolio/hyper-decor` is safe, stable, and correctly documented.
@@ -8,8 +12,11 @@ This skill ensures that every update and publication of `@zenofolio/hyper-decor`
 - [ ] **Benchmarks**: If changes affect NatsMQ or Core logic, run `pnpm bench:concurrency` and `pnpm bench:cron`.
 
 ## 2. Versioning & Package
-- [ ] **SemVer Check**: Ensure the version bump in `package.json` follows Semantic Versioning (Major/Minor/Patch).
-- [ ] **NPM Sync**: Verify if the version already exists on NPM to avoid 403 errors.
+- [ ] **SemVer Check**: Choose the bump type based on these project-specific rules:
+  - **PATCH (`1.0.x`)**: Bugfixes, documentation updates, internal refactoring, or adding internal types.
+  - **MINOR (`1.x.0`)**: New decorators, new non-breaking features in NatsMQ, or adding optional properties to existing contracts.
+  - **MAJOR (`x.0.0`)**: Breaking changes in decorator signatures (e.g., `@OnCron` API change), removing peer dependencies, or changing the core application tree mounting logic.
+- [ ] **NPM Sync**: Verify if the version already exists on NPM to avoid 403 errors. Check `npm view @zenofolio/hyper-decor version`.
 - [ ] **Build Fresh**: Run the build script (if applicable) to ensure `dist/` matches the latest `src/`.
 
 ## 3. Distributed Safety (NatsMQ)

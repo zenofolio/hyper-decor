@@ -1,3 +1,7 @@
+---
+description: 
+---
+
 # Workflow: Git Push Safety
 
 This workflow defines the mandatory steps to ensure that all code pushed to the repository is stable and follows the project standards.
