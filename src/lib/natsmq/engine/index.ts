@@ -164,7 +164,7 @@ export class NatsMQEngine {
     concurrencyMeta: NatsConcurrencyMeta | undefined,
     handler: (data: unknown, msg: JsMsg) => Promise<unknown>
   ): Promise<boolean> {
-    const lockKey = concurrencyMeta ? (concurrencyMeta.pattern.includes("*") ? msg.subject : concurrencyMeta.pattern) : "";
+    const lockKey = concurrencyMeta ? concurrencyMeta.pattern : "";
     const ttl = concurrencyMeta?.ttlMs || 60000;
 
     const routine = async () => {
