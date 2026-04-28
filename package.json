@@ -5,10 +5,7 @@
   "main": "dist/index.js",
   "author": "zenozaga",
   "license": "MIT",
-  "repository": {
-    "type": "git",
-    "url": "git+https://github.com/zenofolio/hyper-decor.git"
-  },
+  "repository": "github:zenofolio/hyper-decor",
   "bugs": {
     "url": "https://github.com/zenofolio/hyper-decor/issues"
   },
