@@ -3,7 +3,7 @@
   "version": "2.0.0",
   "description": "Project core with utilities and features",
   "main": "dist/index.js",
-  "author": "zenozaga <zeno@zenofolio.com> (https://github.com/zenozaga)",
+  "author": "zenozaga <zenozaga@gmail.com> (https://github.com/zenozaga)",
   "license": "MIT",
   "repository": "github:zenofolio/hyper-decor",
   "bugs": {
