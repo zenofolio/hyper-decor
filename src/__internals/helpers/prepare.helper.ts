@@ -398,7 +398,7 @@ function buildResponseSender(
     outputSchema && outputSchema !== Object && outputSchema !== Promise;
 
   return async (res: HE_Response, result: any, req: HE_Request) => {
-    if (result === undefined || res.completed) return;
+    if (result === undefined || res.responded) return;
 
     if (needsTransform) {
       const transformed = await transformRegistry.resolve({
@@ -410,13 +410,13 @@ function buildResponseSender(
         from: "response" as any,
       });
 
-      if (transformed !== undefined && !res.completed) {
+      if (transformed !== undefined && !res.responded) {
         res.json(transformed as Record<string, unknown>);
         return;
       }
     }
 
-    if (res.completed) return;
+    if (res.responded) return;
 
     if (typeof result === "object" && result !== null) {
       res.json(result as Record<string, unknown>);
@@ -495,7 +495,7 @@ async function prepareRoute(
 
       await responseSender(res, result, req);
     } catch (err) {
-      if (res.completed) return;
+      if (res.responded) return;
 
       const error = err as any;
 
@@ -731,7 +731,7 @@ export async function prepareApplication(
   const appServer = new Server(options.uwsOptions || options.options);
 
   appServer.set_error_handler((req, res, error) => {
-    if (res.completed) return;
+    if (res.responded) return;
 
     const status = (error as any).status || 500;
 

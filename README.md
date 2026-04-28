@@ -124,6 +124,7 @@ export const OrderCreated = Orders.define("created", z.object({ id: z.string() }
 // 2. Use in Worker
 class OrderWorker {
   @OnNatsMessage(OrderCreated)
+  // 🛡️ CRITICAL: Limit to 10 concurrent orders ACROSS THE CLUSTER
   @MaxAckPendingPerSubject("orders.created", 10)
   async handle(data: z.infer<typeof OrderCreated.schema>) {
     // data is fully typed and validated
