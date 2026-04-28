@@ -109,30 +109,28 @@ For projects requiring high-fidelity concurrency control and strict data integri
 
 ### Key Capabilities
 - **Contract-First Design**: Define messages as typed objects to eliminate "string magic".
-- **Strict Distributed Concurrency**: Enforce per-subject limits across independent worker processes.
-- **Atomic Reliability**: Built-in local retry queues and Redis-backed state management.
-- **Native Zod Validation**: Every message is validated at both the source (Publish) and destination (Consume).
+## 🚀 NatsMQ (Distributed Messaging)
 
-### Example: Contract-First Approach
+Type-safe, contract-first messaging with built-in concurrency control and distributed locking.
+
 ```typescript
-import { defineQueue, OnNatsMessage } from "@zenofolio/hyper-decor";
+import { defineQueue, OnNatsMessage, MaxAckPendingPerSubject } from "@zenofolio/hyper-decor";
 
-// 1. Define the contract
-export const Orders = defineQueue("orders.>", { stream: "SHOP" });
-export const OrderCreated = Orders.define("created", z.object({ id: z.string() }));
+// 1. Define your contract once (Fluent API)
+export const OrderCreated = defineQueue("orders")
+  .define("created", z.object({ id: z.string(), total: z.number() }))
+  .withStream("ORDERS_STREAM");
 
-// 2. Use in Worker
-class OrderWorker {
+@HyperController("/orders")
+class OrderSvc {
+  
+  // 2. Use it everywhere. No magic strings!
   @OnNatsMessage(OrderCreated)
-  // 🛡️ CRITICAL: Limit to 10 concurrent orders ACROSS THE CLUSTER
-  @MaxAckPendingPerSubject("orders.created", 10)
-  async handle(data: z.infer<typeof OrderCreated.schema>) {
-    // data is fully typed and validated
+  @MaxAckPendingPerSubject(OrderCreated, 5) // Enforced cluster-wide
+  async handleOrder(order: z.infer<typeof OrderCreated.schema>) {
+    console.log("Processing order:", order.id);
   }
 }
-
-// 3. Publish safely
-await engine.publish(OrderCreated, { id: "ORD-123" });
 ```
 
 [Read more in the NatsMQ Documentation](./docs/getting-started.md)

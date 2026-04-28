@@ -98,18 +98,36 @@ export function OnNatsMessage<T extends z.ZodTypeAny>(
  * Validates both incoming request and the outgoing response.
  */
 export function OnNatsRequest<TReq extends z.ZodTypeAny, TRes extends z.ZodTypeAny>(
-  subject: string,
-  reqSchema: TReq,
-  resSchema: TRes,
-  options: NatsSubscriptionOptions = {}
+  subjectOrContract: string | NatsMessageContract<z.infer<TReq>, z.infer<TRes>>,
+  reqSchemaOrOptions?: TReq | NatsSubscriptionOptions,
+  resSchema?: TRes,
+  maybeOptions: NatsSubscriptionOptions = {}
 ) {
   return (target: object, propertyKey: string | symbol, descriptor?: TypedPropertyDescriptor<any>) => {
+    let subject: string;
+    let reqSchema: z.ZodTypeAny;
+    let responseSchema: z.ZodTypeAny;
+    let options: NatsSubscriptionOptions;
+
+    if (typeof subjectOrContract === "string") {
+      subject = subjectOrContract;
+      reqSchema = reqSchemaOrOptions as z.ZodTypeAny;
+      responseSchema = resSchema as z.ZodTypeAny;
+      options = maybeOptions;
+    } else {
+      // Contract mode
+      subject = subjectOrContract.subject;
+      reqSchema = subjectOrContract.schema;
+      responseSchema = subjectOrContract.responseSchema!;
+      options = { ...subjectOrContract.options, ...(reqSchemaOrOptions as any) };
+    }
+
     const existing: NatsSubscriptionMeta[] = Reflect.getMetadata(NATSMQ_SUBSCRIPTION_METADATA, target.constructor) || [];
     existing.push({
       methodName: propertyKey as string,
       subject,
       schema: reqSchema,
-      responseSchema: resSchema,
+      responseSchema,
       options,
       isRequest: true
     });
@@ -121,8 +139,9 @@ export function OnNatsRequest<TReq extends z.ZodTypeAny, TRes extends z.ZodTypeA
  * Limits concurrent processing of messages that match the subject pattern.
  * Uses the exact subject of the message as the lock key.
  */
-export function MaxAckPendingPerSubject(pattern: string, limit: number) {
+export function MaxAckPendingPerSubject(patternOrContract: string | NatsMessageContract<any, any>, limit: number) {
   return (target: object, propertyKey: any) => {
+    const pattern = typeof patternOrContract === "string" ? patternOrContract : patternOrContract.subject;
     const meta: NatsConcurrencyMeta = { pattern, limit };
     // We attach it directly to the method, since it modifies the specific handler's behavior
     Reflect.defineMetadata(NATSMQ_CONCURRENCY_METADATA, meta, target, propertyKey);
