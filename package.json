@@ -22,7 +22,8 @@
     "bench:chaos": "tsx benches/chaos-storm.ts",
     "bench:throughput": "tsx benches/throughput.ts",
     "bench:metrics:redis": "tsx benches/redis-metrics.ts",
-    "bench:concurrency": "tsx benches/concurrency.ts"
+    "bench:concurrency": "tsx benches/concurrency.ts",
+    "bench:cron": "tsx benches/cron-distributed.ts"
   },
   "peerDependencies": {
     "hyper-express": "^6.17.3",

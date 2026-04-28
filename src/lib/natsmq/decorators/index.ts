@@ -18,8 +18,8 @@ export interface NatsSubscriptionOptions extends Partial<ConsumerConfig> {
 }
 
 export interface CronOptions {
-  name: string;
   lockTtlMs?: number;
+  tz?: string;
 }
 
 // --- Internal Metadata Structures ---
@@ -40,6 +40,7 @@ export interface NatsConcurrencyMeta {
 
 export interface NatsCronMeta {
   methodName: string;
+  name: string;
   schedule: string;
   options: CronOptions;
 }
@@ -132,11 +133,12 @@ export function MaxAckPendingPerSubject(pattern: string, limit: number) {
  * Schedules a method to run periodically via a distributed lock.
  * Ensures only one instance runs the cron across the cluster.
  */
-export function OnCron(schedule: string, options: CronOptions) {
+export function OnCron(name: string, schedule: string, options: CronOptions = {}) {
   return (target: object, propertyKey: any) => {
     const existing: NatsCronMeta[] = Reflect.getMetadata(NATSMQ_CRON_METADATA, target.constructor) || [];
     existing.push({
       methodName: propertyKey as string,
+      name,
       schedule,
       options
     });

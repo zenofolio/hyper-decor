@@ -4,6 +4,7 @@ import { NatsMQService } from "../../src/lib/natsmq/service";
 import { OnNatsMessage, MaxAckPendingPerSubject, OnCron } from "../../src/lib/natsmq/decorators";
 import { z } from "zod";
 import { connect, NatsConnection, DeliverPolicy } from "nats";
+import { CronContext } from "../../src/lib/natsmq";
 
 const delay = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
 
@@ -18,7 +19,7 @@ describe("NatsMQ Advanced & Stress Tests", () => {
     try {
       rawNc = await connect({ servers: "nats://localhost:4222" });
       service = NatsMQService.getInstance();
-      service.configure({ 
+      service.configure({
         servers: "nats://localhost:4222",
         retryBackoffMs: [50, 100, 200]
       });
@@ -55,7 +56,7 @@ describe("NatsMQ Advanced & Stress Tests", () => {
     await service.registerInstance(svc);
 
     await service.mq?.engine.publish(`slow.${testSuffix}`, TaskSchema, { id: 1 });
-    
+
     const start = Date.now();
     while (svc.processed < 1 && Date.now() - start < 5000) {
       await delay(200);
@@ -69,8 +70,8 @@ describe("NatsMQ Advanced & Stress Tests", () => {
     let runCount = 0;
 
     class CronSvc {
-      @OnCron("* * * * * *", { name: `cron_${testSuffix}`, lockTtlMs: 500 })
-      async handle(ctx: { extendLock: (ms: number) => Promise<void> }) {
+      @OnCron(`cron_${testSuffix}`, "* * * * * *", { lockTtlMs: 500 })
+      async handle(ctx: CronContext) {
         runCount++;
         await ctx.extendLock(2000);
         await delay(1000);
@@ -91,7 +92,7 @@ describe("NatsMQ Advanced & Stress Tests", () => {
   it("should NOT spin excessively when hitting concurrency limits (Stress Test)", async () => {
     if (!rawNc) return;
     const testSuffix = Math.random().toString(36).substring(7);
-    
+
     class StressSvc {
       public active = 0;
       public maxOverlap = 0;
