@@ -1,117 +1,120 @@
-import { ILock, LockAbortSignal, runUsing, LockOptions } from "../../lock/lock";
 import { IConcurrencyStore } from "../types";
+import { ILock, LockOptions, LockAbortSignal, runUsing } from "../../lock/lock";
 
 interface LockInfo {
-  subject: string;
-  expiry: number;
-}
-
-class LocalLock implements ILock {
-  constructor(
-    private store: LocalConcurrencyStore,
-    public readonly resources: string[],
-    public readonly value: string,
-    public expiration: number
-  ) { }
-
-  async release(): Promise<void> {
-    await this.store.release(this);
-  }
-
-  async extend(duration: number): Promise<ILock> {
-    return this.store.extend(this, duration);
-  }
+  resources: string[];
+  expiresAt: number;
+  limit: number;
+  value: string;
 }
 
 export class LocalConcurrencyStore implements IConcurrencyStore {
-  private counters = new Map<string, Set<string>>();
-  private locks = new Map<string, LockInfo>();
+  private activeLocks = new Map<string, LockInfo>();
+  private globalActiveCount = 0;
+  private cleanupInterval: NodeJS.Timeout | null = null;
 
-  async onInit(): Promise<void> { }
-
-  constructor() {
-    setInterval(() => this.cleanup(), 100).unref();
+  async onInit(): Promise<void> {
+    this.cleanupInterval = setInterval(() => this.cleanup(), 5000);
   }
 
-  async acquire(resources: string[], duration: number, options?: LockOptions): Promise<ILock | null> {
-    const subject = resources[0];
-    const limit = options?.limit || 1;
-
-    let current = this.counters.get(subject);
-    if (!current) {
-      current = new Set();
-      this.counters.set(subject, current);
+  async close(): Promise<void> {
+    if (this.cleanupInterval) {
+      clearInterval(this.cleanupInterval);
+      this.cleanupInterval = null;
     }
-    
-    if (current.size >= limit) return null;
+    this.activeLocks.clear();
+    this.globalActiveCount = 0;
+  }
 
-    const lockId = Math.random().toString(36).substring(2) + Date.now().toString(36);
-    current.add(lockId);
+  async acquire(resources: string[], duration: number, options: LockOptions = {}): Promise<ILock | null> {
+    const now = Date.now();
+    const limit = options.limit || 1;
     
-    const expiration = Date.now() + duration;
-    this.locks.set(lockId, { subject, expiry: expiration });
+    // Check if any pattern exceeds the limit
+    for (const res of resources) {
+      const currentCount = this.getActiveCountSync(res);
+      if (currentCount >= limit) {
+        return null;
+      }
+    }
 
-    return new LocalLock(this, [subject], lockId, expiration);
+    const value = Math.random().toString(36).substring(7);
+    const expiresAt = now + duration;
+
+    this.activeLocks.set(value, {
+      resources,
+      expiresAt,
+      limit,
+      value
+    });
+
+    this.globalActiveCount++;
+
+    const lock: ILock = {
+      resources,
+      value,
+      expiration: expiresAt,
+      release: () => this.release(lock),
+      extend: (d) => this.extend(lock, d)
+    };
+    
+    return lock;
   }
 
   async release(lock: ILock, _options?: LockOptions): Promise<void> {
-    const lockId = lock.value;
-    const info = this.locks.get(lockId);
-    if (info) {
-      const subject = info.subject;
-      const current = this.counters.get(subject);
-      if (current) {
-        current.delete(lockId);
-        if (current.size === 0) this.counters.delete(subject);
-      }
-      this.locks.delete(lockId);
+    if (this.activeLocks.has(lock.value)) {
+      this.activeLocks.delete(lock.value);
+      this.globalActiveCount = Math.max(0, this.globalActiveCount - 1);
     }
   }
 
   async extend(lock: ILock, duration: number, _options?: LockOptions): Promise<ILock> {
-    const info = this.locks.get(lock.value);
-    if (!info) throw new Error("Lock not found");
-    info.expiry += duration;
-    lock.expiration = info.expiry;
+    const info = this.activeLocks.get(lock.value);
+    if (!info) throw new Error("Lock not found or expired");
+    
+    info.expiresAt = Date.now() + duration;
+    lock.expiration = info.expiresAt;
     return lock;
   }
 
-  using<T>(resources: string[], duration: number, routine: (signal: LockAbortSignal) => Promise<T>): Promise<T>;
-  using<T>(resources: string[], duration: number, settings: LockOptions, routine: (signal: LockAbortSignal) => Promise<T>): Promise<T>;
   async using<T>(
     resources: string[],
     duration: number,
-    routineOrSettings: LockOptions | ((signal: LockAbortSignal) => Promise<T>),
-    routine?: (signal: LockAbortSignal) => Promise<T>
+    settingsOrRoutine: LockOptions | ((signal: LockAbortSignal) => Promise<T>),
+    optionalRoutine?: (signal: LockAbortSignal) => Promise<T>
   ): Promise<T> {
-    return runUsing(this, resources, duration, routineOrSettings, routine);
+    return runUsing(this, resources, duration, settingsOrRoutine as any, optionalRoutine);
   }
 
-  private cleanup() {
-    const now = Date.now();
-    for (const [lockId, info] of this.locks.entries()) {
-      if (info.expiry < now) {
-        const subject = info.subject;
-        const current = this.counters.get(subject);
-        if (current) {
-          current.delete(lockId);
-          if (current.size === 0) this.counters.delete(subject);
-        }
-        this.locks.delete(lockId);
-      }
-    }
+  async getActiveCount(pattern: string): Promise<number> {
+    return this.getActiveCountSync(pattern);
   }
 
   async getGlobalActiveCount(): Promise<number> {
-    return Array.from(this.counters.values()).reduce((acc, set) => acc + set.size, 0);
+    return this.globalActiveCount;
   }
 
-  async close(): Promise<void> {
-    this.counters.clear();
-    this.locks.clear();
+  private getActiveCountSync(pattern: string): number {
+    let count = 0;
+    const now = Date.now();
+    
+    const entries = Array.from(this.activeLocks.entries());
+    for (const [_, info] of entries) {
+      if (info.expiresAt > now && info.resources.includes(pattern)) {
+        count++;
+      }
+    }
+    return count;
   }
 
-  async getActiveCount(subject: string): Promise<number> {
-    return this.counters.get(subject)?.size || 0;
+  private cleanup(): void {
+    const now = Date.now();
+    const entries = Array.from(this.activeLocks.entries());
+    for (const [id, info] of entries) {
+      if (info.expiresAt <= now) {
+        this.activeLocks.delete(id);
+        this.globalActiveCount = Math.max(0, this.globalActiveCount - 1);
+      }
+    }
   }
 }

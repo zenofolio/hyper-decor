@@ -23,56 +23,85 @@ export const GetOrder = Orders.define(
 );
 ```
 
-## 2. Fluent Configuration
+## 2. Usage with Decorators (Automatic)
 
-Contracts can be specialized using a chainable API.
-
-```typescript
-export const HighPriorityJob = Orders.define("urgent", JobSchema)
-  .withMaxDeliver(10)          // Custom retries
-  .withDurable("urgent_proc")  // Specific durable consumer name
-  .withStream("VIP_JOBS");     // Different stream for this specific subject
-```
-
-## 3. Subscribing to Messages
-
-Use `@OnNatsMessage` or `@OnNatsRequest` (for RPC) with your contracts.
+NatsMQ supports both **Stage 3** (modern TS) and **Legacy** decorators. When using decorators, the `NatsMQService` automatically discovers and wires up the consumers.
 
 ```typescript
 @HyperService()
 class OrderWorker {
   @OnNatsMessage(OrderCreated)
-  async handle(data: any) {
-    console.log("New order:", data.id);
+  @MaxAckPendingPerSubject(OrderCreated, 5) // Cluster-wide concurrency limit
+  async handle(data: z.infer<typeof OrderCreated.schema>) {
+    console.log("Processing order:", data.id);
+    await delay(100);
   }
 
   @OnNatsRequest(GetOrder)
   async get(req: any) {
-    return { id: req.id, status: "processing" };
+    return { id: req.id, status: "shipped" };
   }
 }
+
+// Wire it up (returns the DI-resolved instance)
+const [worker] = await NatsMQService.getInstance().register(OrderWorker);
 ```
 
-## 4. Cluster-Wide Concurrency
+## 3. Programmatic Usage (No Decorators)
 
-Enforce strict limits on how many workers can process a specific subject at the same time across your entire infrastructure.
-
-```typescript
-@OnNatsMessage(OrderCreated)
-@MaxAckPendingPerSubject(OrderCreated, 1) // Only 1 worker at a time for this contract
-async process(order: any) {
-  // Safe from race conditions
-}
-```
-
-## 5. Publishing
+If you prefer to avoid decorators or need dynamic subscriptions, you can use the programmatic API.
 
 ```typescript
 const service = NatsMQService.getInstance();
 
-// Simple emit
-await service.mq.engine.publish(OrderCreated, { id: "123" });
+// Subscribe manually to a contract
+await service.mq.engine.createPullConsumer(
+  OrderCreated.getNatsConfig(), 
+  [], // No concurrency limits
+  async (data, msg) => {
+    console.log("Manually received:", data);
+    await msg.ack();
+  }
+);
+```
 
-// RPC Request (Typed response)
-const result = await service.mq.engine.request(GetOrder, { id: "123" });
+## 4. High-Performance Throughput
+
+NatsMQ is optimized for high-volume workloads, capable of exceeding **30,000 msg/sec**. To achieve maximum performance:
+
+1.  **Parallel Processing**: Avoid `await` in the main consumer loop for non-critical tasks.
+2.  **Batching**: NatsMQ automatically pulls messages in batches (default 50) to minimize network roundtrips.
+3.  **Local Buffering**: Use the built-in inflight control to balance local task execution with global concurrency limits.
+
+## 5. Distributed Concurrency & Cron
+
+NatsMQ provides absolute mutual exclusion for distributed environments.
+
+### Concurrency Limits
+Use `@MaxAckPendingPerSubject` to enforce that only `N` messages of a specific type are processed at any given time across the whole cluster.
+
+### Distributed Cron
+Use `@OnCron` to ensure a task runs exactly once in the entire cluster at a specific time, even if multiple servers are running the same service.
+
+```typescript
+class BackupService {
+  @OnCron("0 0 * * * *") // Every hour
+  async runBackup() {
+    // Only ONE instance in the whole cluster will execute this.
+    // Protected by Redis/Local locks with temporal bucketing.
+  }
+}
+```
+
+## 6. Publishing & Requests
+
+```typescript
+const mq = NatsMQService.getInstance().mq;
+
+// 1. Fire and Forget
+await mq.engine.publish(OrderCreated, { id: "ORD-123" });
+
+// 2. RPC (Request/Response)
+const status = await mq.engine.request(GetOrder, { id: "ORD-123" });
+console.log(status.status); // "shipped"
 ```

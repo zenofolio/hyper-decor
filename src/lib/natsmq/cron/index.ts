@@ -1,67 +1,73 @@
 import { Cron } from "croner";
-import { NatsCronMeta } from "../decorators";
-import { IConcurrencyStore, CronContext, NatsMQMetrics } from "../types";
+import { NatsCronMeta, IConcurrencyStore, NatsMQMetrics, CronContext } from "../types";
+import { ILock } from "../../lock/lock";
 
 export class CronScheduler {
-  private jobs: Cron[] = [];
+  private jobs = new Map<string, any>();
 
   constructor(
     private store: IConcurrencyStore,
-    private metrics: NatsMQMetrics
-  ) { }
+    private metrics?: NatsMQMetrics
+  ) {}
 
-  schedule(
-    meta: NatsCronMeta,
-    handler: (ctx: CronContext) => Promise<unknown>
-  ): void {
-    const job = new Cron(meta.schedule, { timezone: meta.options.tz }, async () => {
-      const scheduledTime = job.currentRun() || new Date();
-      // Use Math.round to align to the NEAREST second.
-      // This handles the case where one node fires at .999 and another at .001.
-      const bucket = Math.round(scheduledTime.getTime() / 1000);
-      const lockKey = `cron:${meta.name}:${bucket}`;
-      const lockTtl = meta.options.lockTtlMs || 60000;
+  schedule(meta: NatsCronMeta, handler: (ctx: CronContext) => Promise<void>) {
+    const job = new Cron(meta.schedule, { timezone: meta.options?.tz }, async (self) => {
+      // Logic for cron execution with metrics and locking
+      const lockTtl = meta.options?.lockTtlMs || 60000;
+      const start = Date.now();
+      const executionId = Math.random().toString(36).substring(7);
+      
+      // Use the current run time from croner for the lock bucket
+      const scheduledTime = self.currentRun() || new Date();
+      const timeBucket = Math.floor(scheduledTime.getTime() / 1000);
 
       try {
-        const locked = await this.store.acquire([lockKey], lockTtl);
-        if (!locked) return;
+        // Distributed lock MUST be unique per execution tick to avoid collisions
+        let lock = await this.store.acquire([`cron:${meta.name}:${timeBucket}`], lockTtl);
+        if (!lock) return;
 
-        this.metrics.increment("natsmq_cron_started_total", 1, { name: meta.name });
+        try {
+          const context: CronContext = {
+            name: meta.name,
+            scheduledTime: job.nextRun() || new Date(),
+            actualTime: new Date(),
+            executionId,
+            metrics: this.metrics!,
+            extendLock: async (ms: number) => {
+              if (lock) {
+                lock = await this.store.extend(lock, ms);
+              }
+            },
+            log: (msg: string) => console.log(`[Cron:${meta.name}] ${msg}`)
+          };
 
-        const ctx: CronContext = {
-          name: meta.name,
-          scheduledTime,
-          actualTime: new Date(),
-          executionId: `${Date.now()}-${Math.random().toString(36).substring(2, 9)}`,
-          extendLock: async (ms: number) => {
-            await this.store.extend(locked, ms);
-          },
-          log: (msg: string) => console.log(`[Cron | ${meta.name}] ${msg}`),
-          metrics: this.metrics
-        };
-
-        await handler(ctx);
-        this.metrics.increment("natsmq_cron_completed_total", 1, { name: meta.name });
-      } catch (err: any) {
-        const msg = err.message || String(err);
-        const isExpected = err.name === "ExecutionError" || 
-                          err.name === "ResourceLockedError" || 
-                          msg.includes("limit") || 
-                          msg.includes("Lock not found");
-
-        if (!isExpected) {
-          console.error(`[Cron | ${meta.name}] Error:`, err);
-          this.metrics.increment("natsmq_cron_failed_total", 1, { name: meta.name });
+          await handler(context);
+          
+          if (this.metrics) {
+            this.metrics.recordProcessingSuccess(`cron:${meta.name}`, Date.now() - start);
+          }
+        } finally {
+          // NOTE: We do NOT release the lock for crons. 
+          // We let it expire by TTL to prevent other workers from running the same tick 
+          // if this one finishes very quickly.
         }
+      } catch (err) {
+        if (this.metrics) {
+          this.metrics.recordProcessingError(`cron:${meta.name}`, "cron_error");
+        }
+        console.error(`[Cron] Error in ${meta.name}:`, err);
       }
     });
 
-    this.jobs.push(job);
+    this.jobs.set(meta.key, job);
+    console.log(`[Cron] 🕒 Scheduled ${meta.name} (${meta.schedule})`);
   }
 
-  stopAll(): void {
-    for (const job of this.jobs) {
+  stopAll() {
+    const jobsList = Array.from(this.jobs.values());
+    for (const job of jobsList) {
       job.stop();
     }
+    this.jobs.clear();
   }
 }

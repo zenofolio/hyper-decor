@@ -1,170 +1,203 @@
 import "reflect-metadata";
 import { z } from "zod";
-
-import type { ConsumerConfig, JsMsg } from "nats";
-import { INatsProvider, NatsMessageContract } from "../contracts";
-
-// --- Metadata Keys ---
-export const NATSMQ_CLIENT_METADATA = Symbol("NATSMQ_CLIENT_METADATA");
-export const NATSMQ_SUBSCRIPTION_METADATA = Symbol("NATSMQ_SUBSCRIPTION_METADATA");
-export const NATSMQ_CONCURRENCY_METADATA = Symbol("NATSMQ_CONCURRENCY_METADATA");
-export const NATSMQ_CRON_METADATA = Symbol("NATSMQ_CRON_METADATA");
-
-// --- Options Interfaces ---
-export interface NatsSubscriptionOptions extends Partial<ConsumerConfig> {
-  stream?: string;
-  // Ensure we can still access durable_name through the extended interface if needed,
-  // or they can use the standard NATS property names.
-}
-
-export interface CronOptions {
-  lockTtlMs?: number;
-  tz?: string;
-}
-
-// --- Internal Metadata Structures ---
-export interface NatsSubscriptionMeta {
-  methodName: string;
-  subject: string;
-  schema: z.ZodTypeAny;
-  responseSchema?: z.ZodTypeAny; // For requests
-  options: NatsSubscriptionOptions;
-  isRequest: boolean;
-}
-
-export interface NatsConcurrencyMeta {
-  pattern: string;
-  limit: number;
-  ttlMs?: number;
-}
-
-export interface NatsCronMeta {
-  methodName: string;
-  name: string;
-  schedule: string;
-  options: CronOptions;
-}
-
-// --- Decorators ---
+import {
+  NatsSubscriptionOptions,
+  NatsSubscriptionMeta,
+  NatsCronMeta,
+  NatsConcurrencyMeta,
+  INatsProvider,
+  CronOptions
+} from "../types";
+import { getNatsMQMeta } from "../meta";
 
 /**
- * Injects the NatsMQEngine instance into a class property.
+ * Internal helper to generate a unique key for the metadata map.
  */
-export function NatsClient(): PropertyDecorator {
-  return (target: object, propertyKey: string | symbol) => {
-    Reflect.defineMetadata(NATSMQ_CLIENT_METADATA, true, target, propertyKey);
+function generateMetaKey(targetName: string, propertyName: string): string {
+  return `${targetName}:${propertyName}`;
+}
+
+/**
+ * Class-level decorator to associate a worker with a specific Queue Factory (INatsProvider).
+ */
+export function NatsMQWorker(queue: INatsProvider<unknown>): ClassDecorator {
+  return (target: any) => {
+    // In Stage 3, target is the class. In Legacy, it's also the class.
+    const meta = getNatsMQMeta(target);
+    meta.workerOptions = { queue };
   };
 }
 
 /**
- * Subscribes a method to a NATS subject. 
- * Automatically validates incoming payloads using the provided Zod schema.
+ * Top-level decorator to define the entry point of the NatsMQ application.
  */
-export function OnNatsMessage<T extends z.ZodTypeAny>(
-  subjectOrContract: string | INatsProvider<z.infer<T>>,
-  schemaOrOptions?: T | NatsSubscriptionOptions,
-  maybeOptions: NatsSubscriptionOptions = {}
-) {
-  return (target: object, propertyKey: any, descriptor?: any) => {
-    let subject: string;
-    let schema: z.ZodTypeAny;
-    let options: NatsSubscriptionOptions;
+export function NatsMQApp(options: any): ClassDecorator {
+  return (target: any) => {
+    const meta = getNatsMQMeta(target);
+    meta.appConfig = options;
+  };
+}
 
-    if (typeof subjectOrContract === "string") {
-      subject = subjectOrContract;
-      schema = schemaOrOptions as z.ZodTypeAny;
-      options = maybeOptions;
+/**
+ * Decorator to subscribe a method to a NATS subject or contract.
+ */
+export function OnNatsMessage(
+  subjectOrAction: string | INatsProvider<unknown>,
+  schemaOrOptions?: z.ZodType<unknown> | NatsSubscriptionOptions,
+  maybeOptions?: NatsSubscriptionOptions
+): any {
+  return (target: any, propertyKey?: string | symbol, descriptor?: any) => {
+    // Detect Stage 3 vs Legacy
+    const isStage3 = typeof propertyKey === "object" && propertyKey !== null;
+    let constructor: Function;
+    let propertyName: string;
+
+    if (isStage3) {
+      // Stage 3: target is the method, propertyKey is the context
+      const context = propertyKey as any;
+      propertyName = String(context.name);
+      // In Stage 3 method decorators, we can't easily get the constructor here.
+      // We need to store it on the method itself and resolve it later, 
+      // or use a different approach.
+      // BUT for simplicity, if we are in Stage 3, we expect @NatsMQWorker on the class
+      // which will initialize the class meta.
+      // For now, let's try to use the method as a key or store in a global weakmap?
+      // Actually, let's just use the method as the target for now and fix getNatsMQMeta.
+      constructor = target; 
     } else {
-      // INatsProvider mode (Contract or Queue Factory)
-      const config = subjectOrContract.getNatsConfig();
-      subject = config.subject;
-      schema = config.schema;
-      options = { ...config.options, ...(schemaOrOptions as any) };
+      // Legacy
+      constructor = propertyKey === undefined ? (target as Function) : target.constructor as Function;
+      propertyName = propertyKey === undefined ? "class_handler" : String(propertyKey);
     }
 
-    const existing: NatsSubscriptionMeta[] = Reflect.getMetadata(NATSMQ_SUBSCRIPTION_METADATA, target.constructor) || [];
-    existing.push({
-      methodName: propertyKey as string,
+    const meta = getNatsMQMeta(constructor);
+
+    let subject: string;
+    let schema: z.ZodType<unknown>;
+    let options: NatsSubscriptionOptions;
+
+    if (typeof subjectOrAction === "string") {
+      subject = subjectOrAction;
+      schema = (schemaOrOptions instanceof z.ZodType) ? schemaOrOptions : z.any();
+      options = (!(schemaOrOptions instanceof z.ZodType) ? schemaOrOptions : maybeOptions) || {};
+    } else {
+      const config = subjectOrAction.getNatsConfig();
+      subject = config.subject;
+      schema = config.schema;
+      options = { ...config.options, ...(schemaOrOptions as NatsSubscriptionOptions) };
+    }
+
+    const key = generateMetaKey(constructor.name, propertyName);
+    const existing = meta.subscriptions.get(key) || {
+      key,
+      methodName: propertyName,
+      className: constructor.name,
+      concurrencies: []
+    };
+
+    meta.subscriptions.set(key, {
+      ...existing,
       subject,
       schema,
       options,
       isRequest: false
-    });
-    Reflect.defineMetadata(NATSMQ_SUBSCRIPTION_METADATA, existing, target.constructor);
+    } as NatsSubscriptionMeta);
   };
 }
 
 /**
- * Subscribes a method to a NATS subject expecting a request (Request-Reply pattern).
- * Validates both incoming request and the outgoing response.
+ * Decorator to schedule a method as a cron job.
  */
-export function OnNatsRequest<TReq extends z.ZodTypeAny, TRes extends z.ZodTypeAny>(
-  subjectOrContract: string | NatsMessageContract<z.infer<TReq>, z.infer<TRes>>,
-  reqSchemaOrOptions?: TReq | NatsSubscriptionOptions,
-  resSchema?: TRes,
-  maybeOptions: NatsSubscriptionOptions = {}
-) {
-  return (target: object, propertyKey: string | symbol, descriptor?: TypedPropertyDescriptor<any>) => {
-    let subject: string;
-    let reqSchema: z.ZodTypeAny;
-    let responseSchema: z.ZodTypeAny;
-    let options: NatsSubscriptionOptions;
+export function OnCron(name: string, schedule: string, options?: CronOptions): any {
+  return (target: any, propertyKey?: string | symbol, _descriptor?: any) => {
+    // Detect Stage 3 vs Legacy
+    const isStage3 = typeof propertyKey === "object" && propertyKey !== null;
+    let constructor: Function;
+    let propertyName: string;
 
-    if (typeof subjectOrContract === "string") {
-      subject = subjectOrContract;
-      reqSchema = reqSchemaOrOptions as z.ZodTypeAny;
-      responseSchema = resSchema as z.ZodTypeAny;
-      options = maybeOptions;
+    if (isStage3) {
+      const context = propertyKey as any;
+      propertyName = String(context.name);
+      constructor = target; 
     } else {
-      // Contract mode
-      const config = subjectOrContract.getNatsConfig();
-      subject = config.subject;
-      reqSchema = config.schema;
-      responseSchema = subjectOrContract.responseSchema!;
-      options = { ...config.options, ...(reqSchemaOrOptions as any) };
+      constructor = propertyKey === undefined ? (target as Function) : target.constructor as Function;
+      propertyName = propertyKey === undefined ? "class_cron" : String(propertyKey);
     }
 
-    const existing: NatsSubscriptionMeta[] = Reflect.getMetadata(NATSMQ_SUBSCRIPTION_METADATA, target.constructor) || [];
-    existing.push({
-      methodName: propertyKey as string,
-      subject,
-      schema: reqSchema,
-      responseSchema,
-      options,
-      isRequest: true
-    });
-    Reflect.defineMetadata(NATSMQ_SUBSCRIPTION_METADATA, existing, target.constructor);
-  };
-}
-
-/**
- * Limits concurrent processing of messages that match the subject pattern.
- */
-export function MaxAckPendingPerSubject(patternOrContract: string | INatsProvider<any>, limit: number) {
-  return (target: object, propertyKey: any) => {
-    const pattern = typeof patternOrContract === "string" 
-      ? patternOrContract 
-      : patternOrContract.getNatsConfig().subject;
-      
-    const meta: NatsConcurrencyMeta = { pattern, limit };
-    // We attach it directly to the method, since it modifies the specific handler's behavior
-    Reflect.defineMetadata(NATSMQ_CONCURRENCY_METADATA, meta, target, propertyKey);
-  };
-}
-
-/**
- * Schedules a method to run periodically via a distributed lock.
- * Ensures only one instance runs the cron across the cluster.
- */
-export function OnCron(name: string, schedule: string, options: CronOptions = {}) {
-  return (target: object, propertyKey: any) => {
-    const existing: NatsCronMeta[] = Reflect.getMetadata(NATSMQ_CRON_METADATA, target.constructor) || [];
-    existing.push({
-      methodName: propertyKey as string,
-      name,
+    const { crons } = getNatsMQMeta(constructor);
+    const key = generateMetaKey(constructor.name, propertyName);
+    
+    crons.set(key, {
+      key,
+      methodName: propertyName,
+      className: constructor.name,
       schedule,
+      name,
       options
     });
-    Reflect.defineMetadata(NATSMQ_CRON_METADATA, existing, target.constructor);
+  };
+}
+
+/**
+ * Utility to merge concurrency limits into a metadata object.
+ */
+function mergeConcurrencies(existing: NatsConcurrencyMeta[], pattern: string, limit: number, ttlMs?: number): NatsConcurrencyMeta[] {
+  const result = [...existing];
+  const idx = result.findIndex(c => c.pattern === pattern);
+  if (idx >= 0) {
+    result[idx] = { pattern, limit, ttlMs: ttlMs || result[idx].ttlMs };
+  } else {
+    result.push({ pattern, limit, ttlMs });
+  }
+  return result;
+}
+
+/**
+ * Decorator to enforce concurrency limits on a message handler.
+ */
+export function MaxAckPendingPerSubject(
+  patternOrContract: string | INatsProvider<unknown>,
+  limit: number,
+  ttlMs?: number
+): any {
+  return (target: any, propertyKey?: string | symbol) => {
+    const isStage3 = typeof propertyKey === "object" && propertyKey !== null;
+    let constructor: Function;
+    let propertyName: string;
+
+    if (isStage3) {
+      const context = propertyKey as any;
+      propertyName = String(context.name);
+      constructor = target;
+    } else {
+      constructor = propertyKey === undefined ? (target as Function) : target.constructor as Function;
+      propertyName = propertyKey === undefined ? "class_handler" : String(propertyKey);
+    }
+
+    const meta = getNatsMQMeta(constructor);
+
+    let pattern: string;
+    if (typeof patternOrContract === "string") {
+      pattern = patternOrContract;
+    } else {
+      pattern = patternOrContract.getNatsConfig().subject;
+    }
+
+    const key = generateMetaKey(constructor.name, propertyName);
+    const existing = meta.subscriptions.get(key) || {
+      key,
+      methodName: propertyName,
+      className: constructor.name,
+      concurrencies: [],
+      subject: "",
+      schema: z.any(),
+      options: {},
+      isRequest: false
+    };
+
+    meta.subscriptions.set(key, {
+      ...existing,
+      concurrencies: mergeConcurrencies(existing.concurrencies, pattern, limit, ttlMs)
+    });
   };
 }

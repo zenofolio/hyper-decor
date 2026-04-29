@@ -1,21 +1,13 @@
-import "reflect-metadata";
 import { container } from "tsyringe";
-import { CronContext, NatsMQOptions } from "./types";
 import { NatsMQ } from "./index";
-import {
-  NATSMQ_SUBSCRIPTION_METADATA,
-  NATSMQ_CONCURRENCY_METADATA,
-  NATSMQ_CRON_METADATA,
-  NatsSubscriptionMeta,
-  NatsConcurrencyMeta,
-  NatsCronMeta
-} from "./decorators";
-import { JsMsg } from "nats";
+import { NatsMQOptions, NatsSubscriptionMeta, NatsMQMetadata } from "./types";
+import { getNatsMQMeta } from "./meta";
+import { NatsMQWorkerOptions } from "./types";
 
 export class NatsMQService {
   private static instance: NatsMQService;
-  public mq: NatsMQ | null = null;
-  private isInitialized = false;
+  public mq?: NatsMQ;
+  private options?: NatsMQOptions;
 
   private constructor() { }
 
@@ -26,111 +18,138 @@ export class NatsMQService {
     return NatsMQService.instance;
   }
 
-  /**
-   * Configures the global MQ instance. Must be called before onInit.
-   */
-  public configure(options: NatsMQOptions): void {
-    if (this.mq) {
-      throw new Error("NatsMQService is already configured.");
-    }
-    console.log(`[Service] 🔧 Configuring MQ with Store: ${options.concurrencyStore ? options.concurrencyStore.constructor.name : 'NONE'}`);
+  public configure(options: NatsMQOptions) {
+    this.options = options;
     this.mq = new NatsMQ(options);
-    // Register globally in tsyringe so @NatsClient() or constructors can inject it if needed
-    container.register(NatsMQ, { useValue: this.mq });
   }
 
-  /**
-   * Lifecycle hook to initialize connections, auto-provision streams, 
-   * and wire up all decorators across the DI container.
-   */
-  public async onInit(): Promise<void> {
-    if (!this.mq) {
-      throw new Error("NatsMQService was not configured. Call configure() first.");
+  public async onInit() {
+    if (this.mq) {
+      await this.mq.start();
     }
-    if (this.isInitialized) return;
-
-    await this.mq.start();
-    await this.bootstrapDecorators();
-
-    this.isInitialized = true;
   }
 
   /**
-   * Graceful shutdown of the MQ engine and crons.
+   * Registers one or more workers (classes or instances).
+   * Returns an array of the registered instances.
    */
-  public async close(): Promise<void> {
+  public async register(...targets: any[]): Promise<any[]> {
+    const instances = [];
+    for (const target of targets) {
+      if (typeof target === "function") {
+        instances.push(await this.registerClass(target));
+      } else {
+        await this.registerInstance(target);
+        instances.push(target);
+      }
+    }
+    return instances;
+  }
+
+  private async registerClass(target: new (...args: unknown[]) => unknown) {
+    const instance = container.resolve(target as new (...args: unknown[]) => unknown) as object;
+    await this.registerInstance(instance);
+    return instance;
+  }
+
+  public async registerInstance(target: any) {
+    if (!this.mq) {
+      throw new Error("NatsMQ not configured. Call configure() first.");
+    }
+
+    // 1. Get class-level metadata
+    const classMeta = getNatsMQMeta(target);
+    const combinedMeta: NatsMQMetadata = {
+      subscriptions: new Map(classMeta.subscriptions),
+      crons: new Map(classMeta.crons),
+      workerOptions: classMeta.workerOptions,
+      appConfig: classMeta.appConfig
+    };
+
+    // 2. Discover method-level metadata (for Stage 3 decorators)
+    const prototype = Object.getPrototypeOf(target);
+    if (prototype) {
+      const methods = Object.getOwnPropertyNames(prototype);
+      for (const methodName of methods) {
+        if (methodName === "constructor") continue;
+        const method = target[methodName];
+        if (typeof method === "function") {
+          const methodMeta = getNatsMQMeta(method);
+          // Merge subscriptions
+          if (methodMeta.subscriptions.size > 0) {
+            for (const [key, sub] of Array.from(methodMeta.subscriptions.entries())) {
+              combinedMeta.subscriptions.set(key, sub);
+            }
+          }
+          // Merge crons
+          if (methodMeta.crons.size > 0) {
+            for (const [key, cron] of Array.from(methodMeta.crons.entries())) {
+              combinedMeta.crons.set(key, cron);
+            }
+          }
+        }
+      }
+    }
+
+    if (combinedMeta.subscriptions.size === 0 && combinedMeta.crons.size === 0) {
+      const constructor = typeof target === "function" ? target : target.constructor;
+      console.warn(`[Service] ⚠️ No NatsMQ decorators found on ${constructor.name}`);
+      return;
+    }
+
+    const classConfig: NatsMQWorkerOptions = combinedMeta.workerOptions || {};
+
+    // 1. Auto-provision the primary queue/stream
+    if (classConfig.queue) {
+      const config = classConfig.queue.getNatsConfig();
+      await this.mq.engine.provisionStream({
+        subject: config.subject,
+        options: config.options,
+        key: `app:${config.subject}`,
+        methodName: "factory",
+        className: target.constructor.name,
+        schema: config.schema,
+        isRequest: false,
+        concurrencies: []
+      });
+    }
+
+    // 2. Setup NATS Consumers
+    const subsList = Array.from(combinedMeta.subscriptions.values());
+    for (const sub of subsList) {
+      let resolvedSub: NatsSubscriptionMeta = sub;
+
+      if (classConfig.queue && (classConfig.queue as any).define) {
+        const factory = classConfig.queue as any;
+        const prefix = factory.prefix || "";
+        
+        if (!sub.subject.includes('.') || !sub.subject.startsWith(prefix)) {
+          const contract = factory.define(sub.subject, sub.schema, undefined, sub.options);
+          const config = contract.getNatsConfig();
+          resolvedSub = {
+            ...sub,
+            subject: config.subject,
+            options: { ...config.options, filter_subject: config.subject }
+          };
+        }
+      }
+
+      await this.mq.engine.provisionStream(resolvedSub);
+      const handler = (target as any)[sub.methodName];
+      await this.mq.engine.createPullConsumer(resolvedSub, resolvedSub.concurrencies, handler.bind(target));
+    }
+
+    // 3. Setup Cron Jobs
+    const cronsList = Array.from(combinedMeta.crons.values());
+    for (const cron of cronsList) {
+      const handler = (target as any)[cron.methodName];
+      this.mq.cron.schedule(cron, handler.bind(target));
+    }
+  }
+
+  public async close() {
     if (this.mq) {
       await this.mq.close();
-      this.isInitialized = false;
-    }
-  }
-
-  /**
-   * Scans the dependency injection container or prototype chains 
-   * to find and register @OnNatsMessage and @OnCron handlers.
-   */
-  private async bootstrapDecorators() {
-    if (!this.mq) return;
-
-    // We scan all registered singletons in the tsyringe container.
-    // Tsyringe doesn't have a built-in "getAllTokens" API that is public and stable.
-    // However, in a standard HyperApp, controllers and services are instantiated.
-    // We assume the user has a way to provide the instances, or we scan Reflect metadata.
-
-    // For this implementation, since tsyringe hides the registry, we rely on the user
-    // passing the instances, OR if we are part of HyperApp prepare.helper, it would pass them.
-    // For now, let's expose a method to register a specific target instance.
-  }
-
-  /**
-   * Registers a specific class instance that has NatsMQ decorators.
-   */
-  public async registerInstance(instance: object): Promise<void> {
-    if (!this.mq) throw new Error("MQ not started");
-
-    const target = instance.constructor;
-
-    // 1. Setup NATS Consumers
-    const subs: NatsSubscriptionMeta[] = Reflect.getMetadata(NATSMQ_SUBSCRIPTION_METADATA, target) || [];
-    for (const sub of subs) {
-      let concurrencyMeta: NatsConcurrencyMeta | undefined = Reflect.getMetadata(
-        NATSMQ_CONCURRENCY_METADATA,
-        instance,
-        sub.methodName
-      );
-
-      // Si no está en la instancia, buscamos en el constructor (clase)
-      if (!concurrencyMeta) {
-        concurrencyMeta = Reflect.getMetadata(
-          NATSMQ_CONCURRENCY_METADATA,
-          target,
-          sub.methodName
-        );
-      }
-
-      if (concurrencyMeta) {
-        // Concurrency metadata found
-      }
-
-      // Provision stream if it doesn't exist
-      await this.mq.engine.provisionStream(sub);
-
-      // Bind the handler with strict typing
-      const handler = (instance as Record<string, (data: unknown, msg: JsMsg) => Promise<unknown>>)[sub.methodName];
-      if (typeof handler !== 'function') {
-        throw new Error(`Handler ${sub.methodName} not found on instance`);
-      }
-      await this.mq.engine.createPullConsumer(sub, concurrencyMeta, handler.bind(instance));
-    }
-
-    // 2. Setup Crons
-    const crons: NatsCronMeta[] = Reflect.getMetadata(NATSMQ_CRON_METADATA, target) || [];
-    for (const cron of crons) {
-      const handler = (instance as Record<string, (ctx: CronContext) => Promise<unknown>>)[cron.methodName];
-      if (typeof handler !== 'function') {
-        throw new Error(`Cron handler ${cron.methodName} not found on instance`);
-      }
-      this.mq.cron.schedule(cron, handler.bind(instance));
     }
   }
 }

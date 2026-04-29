@@ -12,7 +12,7 @@ High-performance decorator library for [HyperExpress](https://github.com/kartikk
 |-------|-------------|------|
 | **Getting Started** | Installation and Full App Example | [Read Guide](./docs/getting-started.md) |
 | **Architecture** | Modules, Controllers and Services | [Read Guide](./docs/architecture.md) |
-| **NatsMQ (Messaging)** | Contracts, Fluent API and Request-Reply | [Read Guide](./docs/natsmq.md) |
+| **NatsMQ (Messaging)** | Contracts, Fluent API and High Performance | [Read Guide](./docs/natsmq.md) |
 | **Concurrency Control** | Distributed Locking and Crons | [Read Guide](./docs/concurrency.md) |
 | **OpenAPI** | Automatic Swagger Spec Generation | [Read Guide](./docs/openapi.md) |
 
@@ -20,24 +20,29 @@ High-performance decorator library for [HyperExpress](https://github.com/kartikk
 
 ## ⚡ Quick Examples
 
-### 1. Simple Messaging (Pub/Sub)
-Decouple your logic instantly across services or processes.
+### 1. High-Throughput Messaging (NatsMQ)
+Decouple your logic instantly with type-safe contracts and cluster-wide performance.
 
 ```typescript
+// 1. Define a contract
+const Orders = defineQueue("orders");
+const OrderCreated = Orders.define("created", z.object({ id: z.string() }));
+
+// 2. Subscribe with automatic wiring
 @HyperService()
 class NotificationSvc {
-  @OnMessage("user.signup")
-  async welcome(user: any) {
-    console.log(`Welcome ${user.email}!`);
+  @OnNatsMessage(OrderCreated)
+  async welcome(order: { id: string }) {
+    console.log(`Order ${order.id} received!`);
   }
 }
 
-// Emit from any Controller or Service
-MessageBus.emit("user.signup", { email: "zeno@example.com" });
+// 3. Register and get the instance
+const [svc] = await NatsMQService.getInstance().register(NotificationSvc);
 ```
 
-### 2. Distributed Concurrency (NatsMQ)
-Ensure strict execution limits across your entire cluster.
+### 2. Distributed Concurrency Control
+Ensure strict execution limits across your entire cluster at **30,000+ msg/sec**.
 
 ```typescript
 @HyperController("/orders")
@@ -45,7 +50,7 @@ class OrderProcessor {
   @OnNatsMessage(OrderCreated)
   @MaxAckPendingPerSubject(OrderCreated, 1) // Only 1 worker at a time cluster-wide
   async process(order: any) {
-    // Critical section safe from race conditions
+    // Critical section safe from race conditions across ALL nodes
     await performHeavyTask(order);
   }
 }
@@ -55,14 +60,14 @@ class OrderProcessor {
 
 ## Key Features
 
+- **Extreme Performance**: Optimized for high-fidelity messaging, reaching **30,000+ msg/sec** with NATS JetStream.
 - **Modular Architecture**: Organize your logic into `HyperApp`, `HyperModule`, `HyperController`, and `HyperService`.
-- **Reactive Messaging (`@OnMessage`)**: Integrated Pub/Sub system for cross-service and cross-process communication.
-- **Contract-First Design**: Eliminate "string magic" by using typed contract objects.
-- **Native Idempotency**: Prevent duplicate processing with TTL-based stores (In-Memory or Redis).
-- **Distributed Transports**: Native support for **NATS** and **Redis** with lazy loading.
-- **Concurrency Control**: Cluster-wide limits via `@MaxAckPendingPerSubject`.
-- **OpenAPI Integration**: Automatic generation of OpenAPI 3.0 specifications.
+- **Contract-First Design**: Eliminate "string magic" by using strictly typed Zod contract objects.
+- **Distributed Transports**: Native support for **NATS (JetStream)** and **Redis (Streams)**.
+- **Cluster-Wide Concurrency**: Global limits via `@MaxAckPendingPerSubject` with Redis backends.
+- **Distributed Cron**: Ensure cron tasks run exactly once per cluster using temporal bucketing.
 - **Dependency Injection**: Deep dependency resolution powered by `tsyringe`.
+- **OpenAPI Integration**: Automatic generation of Swagger specifications from decorators.
 
 ---
 
@@ -76,77 +81,22 @@ npm install nats ioredis
 
 ---
 
-## Distributed Messaging (Transports)
+## 🚀 NatsMQ: The Messaging Engine
 
-`hyper-decor` supports multiple transports out of the box with zero-configuration switching.
-
-*   **Internal**: Ultra-fast, zero-allocation Trie-based router for same-process communication.
-*   **NATS**: Supports standard Pub/Sub and **JetStream** (durable streams/consumers).
-*   **Redis**: Supports standard Pub/Sub and **Redis Streams**.
+NatsMQ is the recommended engine for high-fidelity messaging. It uses a Fluent API to define strictly typed contracts and manages consumer life-cycles automatically.
 
 ```typescript
-@HyperApp({
-  transports: [
-    new NatsTransport({ servers: "nats://localhost:4222", jetstream: true }),
-    new RedisTransport({ host: "localhost", port: 6379 })
-  ]
-})
-class Application {}
-```
+const service = NatsMQService.getInstance();
+service.configure({ servers: "nats://localhost:4222" });
 
----
-
-## 🚀 NatsMQ: Contract-First Engine
-
-NatsMQ is the recommended engine for high-fidelity messaging. It uses a Fluent API to define strictly typed contracts.
-
-```typescript
-// 1. Define your domain
-const Orders = defineQueue("orders", { stream: "ORDERS" });
-
-// 2. Define contracts with Zod validation
-export const OrderCreated = Orders.define("created", z.object({ id: z.string() }));
-
-// 3. Listen with full type-safety
-@OnNatsMessage(OrderCreated)
-async handle(order: z.infer<typeof OrderCreated.schema>) {
-  // order.id is type-safe
-}
+// Programmatic subscription (optional)
+await service.mq.engine.createPullConsumer(OrderCreated.getNatsConfig(), [], async (data, msg) => {
+  console.log("Manual processing");
+  await msg.ack();
+});
 ```
 
 [Full Messaging Documentation](./docs/natsmq.md)
-
----
-
-## Lifecycle Hooks
-
-Manage your application initialization with granular control.
-
-- **`onInit()`**: Runs when a service/module is resolved.
-- **`onPrepare()`**: Runs after the entire tree is ready, before server start.
-
-```typescript
-@HyperService()
-class DbService implements OnInit {
-  async onInit() {
-    await this.connect();
-  }
-}
-```
-
----
-
-## Testing with `HyperTest`
-
-A NestJS-inspired utility to facilitate isolated unit and integration testing.
-
-```typescript
-const module = await HyperTest.createTestingModule({ imports: [AppModule] })
-  .overrideProvider(DatabaseService).useValue(mockDb)
-  .compile();
-
-const service = module.get(MyService);
-```
 
 ---
 

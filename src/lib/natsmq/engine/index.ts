@@ -1,13 +1,17 @@
 import { connect, NatsConnection, JetStreamClient, JetStreamManager, StringCodec, JsMsg, JSONCodec, RetentionPolicy, Consumer } from "nats";
-import { NatsMQOptions, IConcurrencyStore, NatsMQMetrics } from "../types";
+import { 
+  NatsMQOptions, 
+  IConcurrencyStore, 
+  NatsMQMetrics, 
+  NatsSubscriptionMeta, 
+  NatsConcurrencyMeta, 
+  INatsProvider 
+} from "../types";
 import { LocalConcurrencyStore } from "../store/local-store";
-import { NatsSubscriptionMeta, NatsConcurrencyMeta } from "../decorators";
-import { NatsMessageContract } from "../contracts";
 import { z } from "zod";
 import { ILock } from "../../lock/lock";
 
 const delay = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
-
 
 export class NatsMQEngine {
   private nc: NatsConnection | null = null;
@@ -32,34 +36,27 @@ export class NatsMQEngine {
     return this.options.metrics;
   }
 
-  public getConcurrencyStore(): IConcurrencyStore {
-    return this.store;
+  /**
+   * Retrieves the current number of active concurrent handlers for a subject.
+   */
+  public async getActiveCount(subject?: string | INatsProvider<any>): Promise<number> {
+    if (!subject) return this.store.getGlobalActiveCount();
+    
+    const pattern = typeof subject === "string" 
+      ? subject 
+      : subject.getNatsConfig().subject;
+      
+    return this.store.getActiveCount(pattern);
   }
 
   /**
-   * Inspection: Returns the number of successfully processed messages.
-   * If subject is provided, returns count for that subject.
-   * Otherwise returns the global total across all subjects.
+   * Retrieves the global active count across all subjects.
    */
-  public async getSuccessCount(subject?: string): Promise<number> {
-    if (!this.metrics) return 0;
-    return this.metrics.getCounter('success', subject);
-  }
-
-  /**
-   * Inspection: Returns the current number of active (locked) messages.
-   * If subject is provided, returns count for that subject.
-   * Otherwise returns the global total across all subjects.
-   */
-  public async getActiveCount(subject?: string): Promise<number> {
-    if (subject) {
-      return this.store.getActiveCount(subject);
-    }
+  public async getGlobalActiveCount(): Promise<number> {
     return this.store.getGlobalActiveCount();
   }
 
   async start(): Promise<void> {
-    console.log(`[Engine] 🔌 Starting connection to ${this.options.servers}...`);
     if (this.running) return;
     try {
       if (this.store.onInit) await this.store.onInit();
@@ -67,8 +64,8 @@ export class NatsMQEngine {
       this.js = this.nc.jetstream();
       this.jsm = await this.nc.jetstreamManager();
       this.running = true;
+      console.log(`[Engine] 🔌 Connected to NATS: ${this.options.servers}`);
     } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
       throw err;
     }
   }
@@ -90,33 +87,35 @@ export class NatsMQEngine {
     }
   }
 
+  /**
+   * Deletes a stream from NATS. Useful for cleanup in tests.
+   */
+  async deleteStream(name: string): Promise<void> {
+    if (!this.jsm) return;
+    try {
+      await this.jsm.streams.delete(name);
+      console.log(`[Engine] 🗑️ Stream deleted: ${name}`);
+    } catch (err) {
+      // Ignore if not found
+    }
+  }
+
   async provisionStream(meta: NatsSubscriptionMeta): Promise<void> {
     if (!this.jsm) throw new Error("Engine not started");
     const streamName = meta.options.stream;
     if (!streamName) return;
+
     try {
       const info = await this.jsm.streams.info(streamName);
       const currentSubjects = info.config.subjects || [];
-      if (!currentSubjects.includes(meta.subject)) {
-        currentSubjects.push(meta.subject);
-        try {
-          await this.jsm.streams.update(streamName, {
-            ...info.config,
-            subjects: currentSubjects,
-          });
-        } catch (err) {
-          const message = err instanceof Error ? err.message : String(err);
-          if (message.includes("overlaps")) {
-            // Smart Merge: if there's an overlap, we simplify to the broadest subjects
-            const merged = this.mergeSubjects([...currentSubjects, meta.subject]);
-            await this.jsm.streams.update(streamName, {
-              ...info.config,
-              subjects: merged,
-            });
-          } else {
-            throw err;
-          }
-        }
+
+      const { updated, merged } = this.mergeSubjects(currentSubjects, meta.subject);
+
+      if (updated) {
+        await this.jsm.streams.update(streamName, {
+          ...info.config,
+          subjects: merged,
+        });
       }
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
@@ -132,14 +131,12 @@ export class NatsMQEngine {
     }
   }
 
-  /**
-   * Simplifies a list of NATS subjects by removing those covered by wildcards.
-   */
-  private mergeSubjects(subjects: string[]): string[] {
-    const unique = Array.from(new Set(subjects));
-    // Simple heuristic: if we have "a.>", we don't need "a.b"
-    return unique.filter(s => {
-      return !unique.some(other => {
+  private mergeSubjects(current: string[], newSubject: string): { updated: boolean; merged: string[] } {
+    if (current.includes(newSubject)) return { updated: false, merged: current };
+
+    const all = Array.from(new Set([...current, newSubject]));
+    const filtered = all.filter(s => {
+      return !all.some(other => {
         if (s === other) return false;
         if (other === ">") return true;
         if (other.endsWith(".>")) {
@@ -149,33 +146,42 @@ export class NatsMQEngine {
         return false;
       });
     });
+
+    const isDifferent = filtered.length !== current.length || !filtered.every(s => current.includes(s));
+    return { updated: isDifferent, merged: filtered };
   }
 
   async createPullConsumer(
     meta: NatsSubscriptionMeta,
-    concurrencyMeta: NatsConcurrencyMeta | undefined,
+    concurrencies: NatsConcurrencyMeta[],
     handler: (data: unknown, msg: JsMsg) => Promise<unknown>
   ): Promise<void> {
-    console.log(`[Engine] 📦 createPullConsumer for ${meta.subject} | Meta: ${!!concurrencyMeta}`);
     if (!this.js || !this.running) throw new Error("Engine not started");
     const stream = meta.options.stream;
     if (!stream) throw new Error("Stream required for Pull Consumers");
     const durableName = meta.options.durable_name || `${meta.methodName}_consumer`;
+
     try {
       await this.jsm?.consumers.info(stream, durableName);
     } catch {
+      const { stream: _stream, ...options } = meta.options;
       await this.jsm?.consumers.add(stream, {
-        ...meta.options,
+        ...options,
         durable_name: durableName,
         max_deliver: 100
       });
     }
+
     const consumer = await this.js.consumers.get(stream, durableName);
     this.consumers.set(meta.subject, { consumer, meta });
 
     const messages = await consumer.consume({
-      max_messages: 100, // Pull everything available to handle it quickly
+      max_messages: 50,
     });
+
+    // Tracking for local worker concurrency (inflight control)
+    let localInflight = 0;
+    const maxLocalInflight = 100; // Allow more buffered messages locally
 
     (async () => {
       for await (const msg of messages) {
@@ -184,15 +190,32 @@ export class NatsMQEngine {
           break;
         }
 
-        // Record receipt
         if (this.options.metrics) {
           this.options.metrics.recordMessageReceived(msg.subject);
         }
 
-        // Don't await processMessage here so we don't block the delivery of other messages
-        this.processMessage(msg, meta, concurrencyMeta, handler).catch(err => {
-          console.error(`[Engine] ❌ Critical processing error for ${msg.subject}:`, err);
-        });
+        const process = async () => {
+          localInflight++;
+          try {
+            await this.processMessage(msg, meta, concurrencies, handler);
+          } catch (err) {
+            console.error(`[Engine] ❌ Critical processing error for ${msg.subject}:`, err);
+          } finally {
+            localInflight--;
+          }
+        };
+
+        if (concurrencies.length > 0) {
+          // In concurrency mode, we allow some local buffering but we don't block the pull loop 
+          // too much unless we are really saturated. 
+          // The actual waiting happens inside processMessage (acquire retry)
+          while (localInflight >= maxLocalInflight) {
+            await delay(100);
+          }
+          process(); 
+        } else {
+          process();
+        }
       }
     })().catch(err => {
       if (this.running) console.error(`[Engine] ❌ Consumer error:`, err);
@@ -202,12 +225,9 @@ export class NatsMQEngine {
   private async processMessage(
     msg: JsMsg,
     meta: NatsSubscriptionMeta,
-    concurrencyMeta: NatsConcurrencyMeta | undefined,
+    concurrencies: NatsConcurrencyMeta[],
     handler: (data: unknown, msg: JsMsg) => Promise<unknown>
   ): Promise<boolean> {
-    const lockKey = concurrencyMeta ? concurrencyMeta.pattern : "";
-    const ttl = concurrencyMeta?.ttlMs || 60000;
-
     const routine = async () => {
       const start = Date.now();
       try {
@@ -228,48 +248,65 @@ export class NatsMQEngine {
       }
     };
 
-    if (concurrencyMeta) {
-      let lock: ILock | null = null;
-      let attempts = 0;
-      const maxAttempts = 50; // Wait up to 10s locally
+    if (concurrencies.length > 0) {
+      let locks: ILock[] = [];
+      let success = false;
+      const startAcquire = Date.now();
+      const maxAcquireTime = 60000; // 60s timeout for local retry
 
-      while (attempts < maxAttempts) {
-        lock = await this.store.acquire([lockKey], ttl, { limit: concurrencyMeta.limit });
-        if (lock) break;
+      // Retry loop for acquiring locks instead of immediate NAK
+      while (!success && (Date.now() - startAcquire < maxAcquireTime)) {
+        locks = [];
+        let allLocked = true;
+        
+        try {
+          for (const c of concurrencies) {
+            const ttl = c.ttlMs || 60000;
+            const lock = await this.store.acquire([c.pattern], ttl, { limit: c.limit });
+            if (!lock) {
+              allLocked = false;
+              break;
+            }
+            locks.push(lock);
+          }
 
-        attempts++;
-        if (attempts < maxAttempts) {
-          await new Promise(r => setTimeout(r, 200)); // Wait and retry locally
+          if (allLocked) {
+            success = true;
+          } else {
+            // Release what we got and wait
+            for (const l of locks) await this.store.release(l);
+            await delay(Math.random() * 100 + 50); // Jittered wait
+          }
+        } catch (err) {
+          for (const l of locks) await this.store.release(l);
+          throw err;
         }
       }
 
-      if (!lock) {
-        msg.nak(100); // Finally give up and NAK
+      if (!success) {
+        msg.nak(); 
         return false;
       }
 
-      // Process in background once lock is acquired
-      (async () => {
-        try {
-          await routine();
-        } finally {
-          await this.store.release(lock);
-        }
-      })().catch(err => {
-        console.error(`[Engine] ❌ Error in handler for ${msg.subject}:`, err);
-        msg.nak();
-      });
+      try {
+        await routine();
+      } finally {
+        for (const l of locks) await this.store.release(l);
+      }
       return true;
     }
 
-    routine().catch(err => {
+    try {
+      await routine();
+      return true;
+    } catch (err) {
       console.error(`[Engine] ❌ Error in handler for ${msg.subject}:`, err);
       msg.nak();
-    });
-    return true;
+      return false;
+    }
   }
 
-  async publish<T>(subjectOrContract: string | NatsMessageContract<T>, schemaOrData: z.ZodType<T> | T, maybeData?: T): Promise<void> {
+  async publish<T>(subjectOrContract: string | INatsProvider<T>, schemaOrData: z.ZodType<T> | T, maybeData?: T): Promise<void> {
     if (!this.js || !this.running) throw new Error("Engine not started");
 
     let subject: string;
@@ -281,8 +318,9 @@ export class NatsMQEngine {
       schema = schemaOrData as z.ZodType<T>;
       data = maybeData as T;
     } else {
-      subject = subjectOrContract.subject;
-      schema = subjectOrContract.schema;
+      const config = subjectOrContract.getNatsConfig();
+      subject = config.subject;
+      schema = config.schema;
       data = schemaOrData as T;
     }
 

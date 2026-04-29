@@ -26,7 +26,6 @@ async function runConcurrencyBench() {
   console.log("[Bench] Cleaning NATS Stream...");
   try { await jsm.streams.delete("STR_STRESS"); } catch { }
   await jsm.streams.add({ name: "STR_STRESS", subjects: ["jobs.stress.concurrency.*"] });
-  const js = nc.jetstream();
 
   // 2. Shared Context
   const testPrefix = `test:concurrency:${Date.now()}`;
@@ -35,7 +34,7 @@ async function runConcurrencyBench() {
 
   const CONCURRENCY_LIMIT = 20;
   const totalToSent = 100;
-  const maxObserved: Record<string, number> = { "jobs.stress.concurrency.A": 0, "jobs.stress.concurrency.B": 0 };
+  let maxObserved = 0;
 
   // 3. Spawn 4 independent worker processes
   console.log("[Bench] Spawning 4 independent worker processes...");
@@ -56,7 +55,7 @@ async function runConcurrencyBench() {
   console.log("[Bench] Waiting for workers to be ready...");
   await delay(5000);
 
-  // 4. BLAST via Engine (Publisher) & Monitor Context
+  // 4. BLAST via Engine (Publisher)
   const service = NatsMQService.getInstance();
   service.configure({
     servers: "nats://localhost:4222",
@@ -79,33 +78,33 @@ async function runConcurrencyBench() {
   console.log("[Bench] 📊 Monitoring across all processes...");
   const start = Date.now();
   let totalProcessed = 0;
+  
   while (totalProcessed < totalToSent && Date.now() - start < 60000) {
-    const activeA = await engine.getActiveCount("jobs.stress.concurrency.A");
-    const activeB = await engine.getActiveCount("jobs.stress.concurrency.B");
+    // We monitor the wildcard pattern because that's where the limit is applied
+    const active = await engine.getActiveCount("jobs.stress.concurrency.*");
+    maxObserved = Math.max(maxObserved, active);
 
-    maxObserved["jobs.stress.concurrency.A"] = Math.max(maxObserved["jobs.stress.concurrency.A"], activeA);
-    maxObserved["jobs.stress.concurrency.B"] = Math.max(maxObserved["jobs.stress.concurrency.B"], activeB);
+    // Get individual success counts for visibility
+    const successA = await metrics.getCounter("success", "jobs.stress.concurrency.A");
+    const successB = await metrics.getCounter("success", "jobs.stress.concurrency.B");
+    totalProcessed = successA + successB;
 
-    totalProcessed = await engine.getSuccessCount();
+    process.stdout.write(`\r[Monitor] Processed: ${totalProcessed}/${totalToSent} (A:${successA} B:${successB}) | Active: ${active} | Max Observed: ${maxObserved}   `);
 
-    process.stdout.write(`\r[Monitor] Processed: ${totalProcessed}/${totalToSent} | Active A: ${activeA} B: ${activeB} | Max A: ${maxObserved["jobs.stress.concurrency.A"]} B: ${maxObserved["jobs.stress.concurrency.B"]}   `);
-
-    if (totalProcessed < totalToSent) await delay(100);
+    if (totalProcessed < totalToSent) await delay(200);
   }
 
   console.log("\n" + "=".repeat(40));
   console.log("🏁 DISTRIBUTED RESULTS");
-  console.log("Subject A Max Concurrency:", maxObserved["jobs.stress.concurrency.A"]);
-  console.log("Subject B Max Concurrency:", maxObserved["jobs.stress.concurrency.B"]);
+  console.log("Shared Pattern Max Concurrency:", maxObserved);
+  console.log("Total Processed:", totalProcessed);
 
-  const success = maxObserved["jobs.stress.concurrency.A"] <= CONCURRENCY_LIMIT &&
-    maxObserved["jobs.stress.concurrency.B"] <= CONCURRENCY_LIMIT &&
-    totalProcessed === totalToSent;
+  const success = maxObserved <= CONCURRENCY_LIMIT && totalProcessed === totalToSent;
 
   if (success) {
     console.log(`✅ SUCCESS: Distributed concurrency strictly enforced (Max ${CONCURRENCY_LIMIT}).`);
   } else {
-    console.error(`❌ FAILURE: Limit violated (A:${maxObserved["jobs.stress.concurrency.A"]}, B:${maxObserved["jobs.stress.concurrency.B"]}) or messages lost!`);
+    console.error(`❌ FAILURE: Limit violated (${maxObserved}) or messages lost (${totalProcessed}/${totalToSent})!`);
   }
   console.log("=".repeat(40) + "\n");
 

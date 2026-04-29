@@ -1,17 +1,5 @@
 import { z } from "zod";
-import { NatsSubscriptionMeta, NatsSubscriptionOptions } from "../decorators";
-
-/**
- * Interface that allows a class to provide NATS configuration.
- * Can be implemented by individual messages or entire queue factories.
- */
-export interface INatsProvider<T = any> {
-  getNatsConfig(): {
-    subject: string;
-    schema: z.ZodType<T>;
-    options: NatsSubscriptionOptions;
-  };
-}
+import { NatsSubscriptionOptions, INatsProvider } from "../types";
 
 export class NatsMessageContract<T, R = void> implements INatsProvider<T> {
   constructor(
@@ -30,6 +18,18 @@ export class NatsMessageContract<T, R = void> implements INatsProvider<T> {
       schema: this.schema,
       options: this.options
     };
+  }
+
+  /**
+   * Returns a new contract instance with dynamic subject parts filled.
+   * Replaces '*' or '>' tokens with provided arguments.
+   */
+  fill(...args: string[]): NatsMessageContract<T, R> {
+    let newSubject = this.subject;
+    for (const arg of args) {
+      newSubject = newSubject.replace(/(\*|>)/, arg);
+    }
+    return new NatsMessageContract(newSubject, this.schema, this.responseSchema, this.options);
   }
 
   /**
@@ -57,6 +57,21 @@ export class NatsMessageContract<T, R = void> implements INatsProvider<T> {
   }
 
   /**
+   * Adds a concurrency limit to this contract.
+   */
+  withConcurrency(pattern: string, limit: number, ttlMs?: number): this {
+    this.options.concurrencies ??= [];
+    const existing = this.options.concurrencies.find(c => c.pattern === pattern);
+    if (existing) {
+      existing.limit = limit;
+      if (ttlMs) existing.ttlMs = ttlMs;
+    } else {
+      this.options.concurrencies.push({ pattern, limit, ttlMs });
+    }
+    return this;
+  }
+
+  /**
    * Adds any custom NATS subscription options.
    */
   withOptions(options: NatsSubscriptionOptions): this {
@@ -73,7 +88,6 @@ export class ContractFactory implements INatsProvider<any> {
 
   /**
    * Implements INatsProvider to return a "catch-all" configuration for the entire queue.
-   * Uses the prefix followed by '.>' to listen to all sub-subjects.
    */
   getNatsConfig() {
     return {
@@ -85,10 +99,6 @@ export class ContractFactory implements INatsProvider<any> {
 
   /**
    * Defines a new message contract.
-   * @param subject The sub-subject (will be prefixed if a prefix exists).
-   * @param schema Zod schema for validation.
-   * @param responseSchema Optional Zod schema for the response (Request-Reply).
-   * @param options Specific NATS options for this message.
    */
   define<T, R = void>(
     subject: string,
@@ -111,8 +121,6 @@ export class ContractFactory implements INatsProvider<any> {
 
 /**
  * Creates a new contract factory.
- * @param prefix Optional prefix for all subjects defined by this factory.
- * @param options Default options for all messages.
  */
 export function defineQueue(prefix: string = "", options: NatsSubscriptionOptions = {}) {
   return new ContractFactory(prefix, options);

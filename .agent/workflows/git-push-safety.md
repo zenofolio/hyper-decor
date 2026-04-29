@@ -22,6 +22,10 @@ This workflow defines the mandatory steps to ensure that all code pushed to the 
   - `docs(...)`: for documentation changes.
   - `refactor(...)`: for code changes that neither fix a bug nor add a feature.
 
-## 4. Final Sync
+## 4. Documentation & READMEs
+- [ ] **Alignment**: Verify that `README.md` and technical documentation (e.g., `docs/*.md`) are up-to-date with the code changes. It is forbidden to push features without updating their corresponding documentation.
+- [ ] **Examples**: Ensure that code examples in the documentation actually work with the new implementation.
+
+## 5. Final Sync
 - [ ] **Pull First**: Run `git pull origin main` to ensure you are working on the latest version and to resolve conflicts locally.
 - [ ] **Final Build**: If the project has a build step, run it once to ensure the final bundle is correct.

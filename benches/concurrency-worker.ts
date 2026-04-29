@@ -27,13 +27,13 @@ async function main() {
   const { Redis } = await import("ioredis");
   const redis = new Redis("redis://localhost:6379");
 
-  const store = new RedisConcurrencyStore({ redis, prefix: process.env.REDIS_PREFIX });
+  const concurrencyStore = new RedisConcurrencyStore({ redis, prefix: process.env.REDIS_PREFIX });
   const metrics = new RedisMetrics({ redis, prefix: process.env.METRICS_PREFIX });
 
   const service = NatsMQService.getInstance();
   service.configure({
     servers: "nats://localhost:4222",
-    concurrencyStore: store,
+    concurrencyStore,
     metrics
   });
   await service.onInit();

@@ -1,6 +1,6 @@
 import "reflect-metadata";
 import { NatsMQService } from "../src/lib/natsmq/service";
-import { MaxAckPendingPerSubject, OnNatsMessage } from "../src/lib/natsmq/decorators";
+import { OnNatsMessage } from "../src/lib/natsmq/decorators";
 import { DeliverPolicy } from "nats";
 import { z } from "zod";
 
@@ -10,15 +10,14 @@ class ThroughputWorker {
   private count = 0;
 
   @OnNatsMessage("bench.throughput", JobSchema, {
-    stream: "STR_BENCH",
+    stream: "STR_THROUGHPUT_BENCH",
     deliver_policy: DeliverPolicy.All,
     durable_name: "bench_consumer"
   })
-  @MaxAckPendingPerSubject("bench.throughput", 10)
   async handle(data: z.infer<typeof JobSchema>) {
     this.count++;
 
-    if (this.count % 200 === 0) {
+    if (this.count % 500 === 0) {
       console.log(`[Worker:${process.pid}] processed ${this.count} messages`);
     }
 
