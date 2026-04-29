@@ -160,28 +160,33 @@ export class NatsMQEngine {
     const stream = meta.options.stream;
     if (!stream) throw new Error("Stream required for Pull Consumers");
     const durableName = meta.options.durable_name || `${meta.methodName}_consumer`;
+    const { stream: _stream, max_messages: _maxMsgs, ...natsOptions } = meta.options;
 
     try {
       await this.jsm?.consumers.info(stream, durableName);
     } catch {
-      const { stream: _stream, ...options } = meta.options;
       await this.jsm?.consumers.add(stream, {
-        ...options,
+        ...natsOptions,
         durable_name: durableName,
-        max_deliver: 100
+        max_deliver: natsOptions.max_deliver || 100
       });
     }
 
     const consumer = await this.js.consumers.get(stream, durableName);
     this.consumers.set(meta.subject, { consumer, meta });
 
+    // Synchronization: Pull batch size and local inflight
+    const maxAckPending = natsOptions.max_ack_pending || 1000;
+    const pullBatch = meta.options.max_messages || Math.min(50, maxAckPending);
+    
     const messages = await consumer.consume({
-      max_messages: 50,
+      max_messages: pullBatch,
     });
 
     // Tracking for local worker concurrency (inflight control)
     let localInflight = 0;
-    const maxLocalInflight = 100; // Allow more buffered messages locally
+    // We allow local buffering up to the NATS server limit (max_ack_pending)
+    const maxLocalInflight = maxAckPending;
 
     (async () => {
       for await (const msg of messages) {

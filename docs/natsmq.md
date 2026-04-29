@@ -85,15 +85,43 @@ Use `@OnCron` to ensure a task runs exactly once in the entire cluster at a spec
 
 ```typescript
 class BackupService {
-  @OnCron("0 0 * * * *") // Every hour
-  async runBackup() {
-    // Only ONE instance in the whole cluster will execute this.
-    // Protected by Redis/Local locks with temporal bucketing.
-  }
-}
+## 5. Advanced NATS Options (Inflight & Delivery)
+
+NatsMQ allows you to tune the underlying **NATS JetStream Consumer** directly through the contract fluent API.
+
+| Method | Description | NATS Key |
+|--------|-------------|----------|
+| `.withMaxInflight(n)` | Max messages pending ACK (Inflight) | `max_ack_pending` |
+| `.withMaxDeliver(n)` | Max delivery attempts before failing | `max_deliver` |
+| `.withOptions(obj)` | Pass any NATS `ConsumerConfig` | Mixed |
+
+```typescript
+// Configure a contract with strict limits
+const HeavyTask = Orders.define("process")
+  .withMaxInflight(10) // Only pull 10 messages from NATS at a time
+  .withMaxDeliver(5)   // Give up after 5 failed attempts
+  .withOptions({ 
+     ack_wait: 30000,   // Wait 30s for ACK
+     max_messages: 5    // Pull in batches of 5
+  });
 ```
 
-## 6. Publishing & Requests
+> [!TIP]
+> **Max Inflight vs Global Concurrency**: `withMaxInflight` controls how many messages NATS will send to a single worker. `@MaxAckPendingPerSubject` controls how many workers in the **entire cluster** can process a specific subject simultaneously.
+
+## 6. High-Performance Throughput
+
+NatsMQ is optimized for high-volume workloads (>30,000 msg/sec). 
+
+- **Pull Consumption**: Unlike Push consumers, NatsMQ uses Pull, preventing worker saturation by only requesting messages when it has local capacity.
+- **Inflight Control**: NatsMQ pulls messages in batches (customizable via `max_messages`) and processes them in parallel while respecting your concurrency limits.
+- **NAK Storm Protection**: If a worker hits a global limit, it won't "NAK storm" NATS; instead, it uses a smart local retry loop with jitter to wait for the next available slot within its local inflight buffer.
+
+## 7. Distributed Cron Jobs
+
+NatsMQ Crons use temporal bucketing to ensure a task runs **exactly once** in the whole cluster.
+
+## 8. Publishing & Requests
 
 ```typescript
 const mq = NatsMQService.getInstance().mq;

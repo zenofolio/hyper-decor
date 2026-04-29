@@ -7,6 +7,11 @@ import { ILock, ILockManager, LockOptions } from "../lock/lock";
 export interface NatsSubscriptionOptions extends Partial<ConsumerConfig> {
   stream?: string;
   concurrencies?: NatsConcurrencyMeta[];
+  /**
+   * Maximum number of messages to pull in a single batch.
+   * Defaults to 50 or max_ack_pending if smaller.
+   */
+  max_messages?: number;
 }
 
 /**

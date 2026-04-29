@@ -6,7 +6,7 @@ export class NatsMessageContract<T, R = void> implements INatsProvider<T> {
     public readonly subject: string,
     public readonly schema: z.ZodType<T>,
     public readonly responseSchema?: z.ZodType<R>,
-    public options: NatsSubscriptionOptions = {}
+    public readonly options: NatsSubscriptionOptions = {}
   ) {}
 
   /**
@@ -19,6 +19,61 @@ export class NatsMessageContract<T, R = void> implements INatsProvider<T> {
       schema: this.schema,
       options: this.options
     };
+  }
+
+  /**
+   * Applies custom NATS consumer options and returns a NEW instance.
+   */
+  withOptions(options: Partial<NatsSubscriptionOptions>): NatsMessageContract<T, R> {
+    return new NatsMessageContract(this.subject, this.schema, this.responseSchema, {
+      ...this.options,
+      ...options
+    });
+  }
+
+  /**
+   * Sets the maximum number of messages that can be pending ACK (inflight).
+   * In NATS JetStream this maps to 'max_ack_pending'.
+   */
+  withMaxInflight(limit: number): NatsMessageContract<T, R> {
+    return this.withOptions({ max_ack_pending: limit });
+  }
+
+  /**
+   * Sets the maximum number of delivery attempts for a message.
+   */
+  withMaxDeliver(attempts: number): NatsMessageContract<T, R> {
+    return this.withOptions({ max_deliver: attempts });
+  }
+
+  /**
+   * Assigns this contract to a specific NATS JetStream.
+   */
+  withStream(name: string): NatsMessageContract<T, R> {
+    return this.withOptions({ stream: name });
+  }
+
+  /**
+   * Sets a durable name for the consumer associated with this contract.
+   */
+  withDurable(name: string): NatsMessageContract<T, R> {
+    return this.withOptions({ durable_name: name });
+  }
+
+  /**
+   * Adds a concurrency limit to this contract.
+   */
+  withConcurrency(pattern: string, limit: number, ttlMs?: number): NatsMessageContract<T, R> {
+    const concurrencies = [...(this.options.concurrencies || [])];
+    const index = concurrencies.findIndex(c => c.pattern === pattern);
+    
+    if (index !== -1) {
+      concurrencies[index] = { ...concurrencies[index], limit, ttlMs };
+    } else {
+      concurrencies.push({ pattern, limit, ttlMs });
+    }
+
+    return this.withOptions({ concurrencies });
   }
 
   /**
@@ -41,53 +96,6 @@ export class NatsMessageContract<T, R = void> implements INatsProvider<T> {
     }
 
     return new NatsMessageContract(newSubject, this.schema, this.responseSchema, this.options);
-  }
-
-  /**
-   * Assigns this contract to a specific NATS JetStream.
-   */
-  withStream(name: string): this {
-    this.options.stream = name;
-    return this;
-  }
-
-  /**
-   * Sets a durable name for the consumer associated with this contract.
-   */
-  withDurable(name: string): this {
-    this.options.durable_name = name;
-    return this;
-  }
-
-  /**
-   * Sets the maximum number of redelivery attempts.
-   */
-  withMaxDeliver(count: number): this {
-    this.options.max_deliver = count;
-    return this;
-  }
-
-  /**
-   * Adds a concurrency limit to this contract.
-   */
-  withConcurrency(pattern: string, limit: number, ttlMs?: number): this {
-    this.options.concurrencies ??= [];
-    const existing = this.options.concurrencies.find(c => c.pattern === pattern);
-    if (existing) {
-      existing.limit = limit;
-      if (ttlMs) existing.ttlMs = ttlMs;
-    } else {
-      this.options.concurrencies.push({ pattern, limit, ttlMs });
-    }
-    return this;
-  }
-
-  /**
-   * Adds any custom NATS subscription options.
-   */
-  withOptions(options: NatsSubscriptionOptions): this {
-    this.options = { ...this.options, ...options };
-    return this;
   }
 }
 
