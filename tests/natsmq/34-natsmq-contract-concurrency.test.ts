@@ -1,37 +1,32 @@
 import "reflect-metadata";
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
-import { NatsMQService } from "../../src/lib/natsmq/service";
-import { OnNatsMessage, MaxAckPendingPerSubject } from "../../src/lib/natsmq/decorators";
-import { defineQueue } from "../../src/lib/natsmq/contracts";
 import { z } from "zod";
+import { NatsMQService } from "../../src/lib/natsmq/service";
+import { defineQueue } from "../../src/lib/natsmq/contracts";
+import { OnNatsMessage, MaxAckPendingPerSubject } from "../../src/lib/natsmq/decorators";
 import { LocalConcurrencyStore } from "../../src/lib/natsmq/store/local-store";
 
 const delay = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
 
-const name = `contract.concurrency.${Math.random().toString(36).substring(7)}`;
-const stream = `str_conc_${Math.random().toString(36).substring(7)}`;
+const randomId = () => Math.random().toString(36).substring(7);
+const STREAM_NAME = `STR_TEST_${randomId()}`;
+const QUEUE_PREFIX = `tasks_${randomId()}`;
 
-// Correct Contract Definition
-const queue = defineQueue();
-const TaskContract = queue.define(
-  name,
-  z.object({ id: z.number() })
-).withStream(stream);
+const Tasks = defineQueue(QUEUE_PREFIX, { stream: STREAM_NAME });
+const TaskContract = Tasks.define("job", z.object({ id: z.number() }));
 
-describe("NatsMQ Contract-based Concurrency", () => {
+describe("NatsMQ: Contract & Queue Concurrency", () => {
   let service: NatsMQService;
 
   beforeAll(async () => {
     service = NatsMQService.getInstance();
-    // In tests, we might need to re-configure if singleton was already used
-    // But for a clean test, we just assume it's fresh or we use a unique config
     try {
       service.configure({
         servers: "nats://localhost:4222",
         concurrencyStore: new LocalConcurrencyStore()
       });
     } catch (e) {
-      // Already configured, that's fine for this test
+      // Already configured
     }
     await service.onInit();
   });
@@ -47,7 +42,7 @@ describe("NatsMQ Contract-based Concurrency", () => {
       public completed = 0;
 
       @OnNatsMessage(TaskContract)
-      @MaxAckPendingPerSubject(TaskContract, 1) // Using Contract!
+      @MaxAckPendingPerSubject(TaskContract, 1) 
       async handle(data: any) {
         this.active++;
         this.maxOverlap = Math.max(this.maxOverlap, this.active);
@@ -60,18 +55,49 @@ describe("NatsMQ Contract-based Concurrency", () => {
     const svc = new ConcurrencySvc();
     await service.registerInstance(svc);
 
-    // Publish 2 messages using the contract
     await service.mq!.engine.publish(TaskContract, { id: 1 });
     await service.mq!.engine.publish(TaskContract, { id: 2 });
 
-    // Wait for completion
-    const start = Date.now();
-    while (svc.completed < 2) {
-      if (Date.now() - start > 5000) break;
+    let wait = 0;
+    while (svc.completed < 2 && wait < 100) {
       await delay(100);
+      wait++;
     }
 
+    expect(svc.maxOverlap).toBe(1);
     expect(svc.completed).toBe(2);
-    expect(svc.maxOverlap).toBe(1); // Should have been strictly sequential
+  });
+
+  it("should allow listening to the ENTIRE queue using the Factory (INatsProvider)", async () => {
+    class QueueListenerSvc {
+      public receivedSubjects: string[] = [];
+
+      @OnNatsMessage(Tasks) 
+      async handleAll(data: any, msg: any) {
+        // console.log(`[Test] Received subject: ${msg.subject}`);
+        this.receivedSubjects.push(msg.subject);
+      }
+    }
+
+    const svc = new QueueListenerSvc();
+    await service.registerInstance(svc);
+
+    const OtherContract = Tasks.define("other", z.object({ msg: z.string() }));
+
+    // Wait a bit for the consumer to be ready in NATS
+    await delay(500);
+
+    await service.mq!.engine.publish(TaskContract, { id: 100 });
+    await service.mq!.engine.publish(OtherContract, { msg: "hello" });
+
+    let wait = 0;
+    while (svc.receivedSubjects.length < 2 && wait < 100) {
+      await delay(100);
+      wait++;
+    }
+
+    // console.log(`[Test] Total received: ${svc.receivedSubjects.join(", ")}`);
+    expect(svc.receivedSubjects).toContain(`${QUEUE_PREFIX}.job`);
+    expect(svc.receivedSubjects).toContain(`${QUEUE_PREFIX}.other`);
   });
 });

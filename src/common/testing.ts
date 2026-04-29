@@ -146,7 +146,7 @@ async function deepResolve<T>(token: Token<T>): Promise<T> {
     const injectionTokens = Reflect.getOwnMetadata("injectionTokens", target) || {};
 
     for (let i = 0; i < paramTypes.length; i++) {
-      // Use @inject token if present, otherwise use design:paramtype
+      // Use @inject token if present, otherwise use design:parafmtype
       const dep = injectionTokens[i] || paramTypes[i];
 
       // Avoid cycles or primitives

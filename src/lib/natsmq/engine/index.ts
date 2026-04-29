@@ -95,7 +95,29 @@ export class NatsMQEngine {
     const streamName = meta.options.stream;
     if (!streamName) return;
     try {
-      await this.jsm.streams.info(streamName);
+      const info = await this.jsm.streams.info(streamName);
+      const currentSubjects = info.config.subjects || [];
+      if (!currentSubjects.includes(meta.subject)) {
+        currentSubjects.push(meta.subject);
+        try {
+          await this.jsm.streams.update(streamName, {
+            ...info.config,
+            subjects: currentSubjects,
+          });
+        } catch (err) {
+          const message = err instanceof Error ? err.message : String(err);
+          if (message.includes("overlaps")) {
+            // Smart Merge: if there's an overlap, we simplify to the broadest subjects
+            const merged = this.mergeSubjects([...currentSubjects, meta.subject]);
+            await this.jsm.streams.update(streamName, {
+              ...info.config,
+              subjects: merged,
+            });
+          } else {
+            throw err;
+          }
+        }
+      }
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       if (message.includes("stream not found")) {
@@ -108,6 +130,25 @@ export class NatsMQEngine {
         throw err;
       }
     }
+  }
+
+  /**
+   * Simplifies a list of NATS subjects by removing those covered by wildcards.
+   */
+  private mergeSubjects(subjects: string[]): string[] {
+    const unique = Array.from(new Set(subjects));
+    // Simple heuristic: if we have "a.>", we don't need "a.b"
+    return unique.filter(s => {
+      return !unique.some(other => {
+        if (s === other) return false;
+        if (other === ">") return true;
+        if (other.endsWith(".>")) {
+          const prefix = other.slice(0, -2);
+          return s.startsWith(prefix);
+        }
+        return false;
+      });
+    });
   }
 
   async createPullConsumer(

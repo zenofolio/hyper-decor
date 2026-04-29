@@ -2,7 +2,7 @@ import "reflect-metadata";
 import { z } from "zod";
 
 import type { ConsumerConfig, JsMsg } from "nats";
-import { NatsMessageContract } from "../contracts";
+import { INatsProvider, NatsMessageContract } from "../contracts";
 
 // --- Metadata Keys ---
 export const NATSMQ_CLIENT_METADATA = Symbol("NATSMQ_CLIENT_METADATA");
@@ -61,7 +61,7 @@ export function NatsClient(): PropertyDecorator {
  * Automatically validates incoming payloads using the provided Zod schema.
  */
 export function OnNatsMessage<T extends z.ZodTypeAny>(
-  subjectOrContract: string | NatsMessageContract<z.infer<T>>,
+  subjectOrContract: string | INatsProvider<z.infer<T>>,
   schemaOrOptions?: T | NatsSubscriptionOptions,
   maybeOptions: NatsSubscriptionOptions = {}
 ) {
@@ -75,10 +75,11 @@ export function OnNatsMessage<T extends z.ZodTypeAny>(
       schema = schemaOrOptions as z.ZodTypeAny;
       options = maybeOptions;
     } else {
-      // Contract mode
-      subject = subjectOrContract.subject;
-      schema = subjectOrContract.schema;
-      options = { ...subjectOrContract.options, ...(schemaOrOptions as any) };
+      // INatsProvider mode (Contract or Queue Factory)
+      const config = subjectOrContract.getNatsConfig();
+      subject = config.subject;
+      schema = config.schema;
+      options = { ...config.options, ...(schemaOrOptions as any) };
     }
 
     const existing: NatsSubscriptionMeta[] = Reflect.getMetadata(NATSMQ_SUBSCRIPTION_METADATA, target.constructor) || [];
@@ -116,10 +117,11 @@ export function OnNatsRequest<TReq extends z.ZodTypeAny, TRes extends z.ZodTypeA
       options = maybeOptions;
     } else {
       // Contract mode
-      subject = subjectOrContract.subject;
-      reqSchema = subjectOrContract.schema;
+      const config = subjectOrContract.getNatsConfig();
+      subject = config.subject;
+      reqSchema = config.schema;
       responseSchema = subjectOrContract.responseSchema!;
-      options = { ...subjectOrContract.options, ...(reqSchemaOrOptions as any) };
+      options = { ...config.options, ...(reqSchemaOrOptions as any) };
     }
 
     const existing: NatsSubscriptionMeta[] = Reflect.getMetadata(NATSMQ_SUBSCRIPTION_METADATA, target.constructor) || [];
@@ -137,11 +139,13 @@ export function OnNatsRequest<TReq extends z.ZodTypeAny, TRes extends z.ZodTypeA
 
 /**
  * Limits concurrent processing of messages that match the subject pattern.
- * Uses the exact subject of the message as the lock key.
  */
-export function MaxAckPendingPerSubject(patternOrContract: string | NatsMessageContract<any, any>, limit: number) {
+export function MaxAckPendingPerSubject(patternOrContract: string | INatsProvider<any>, limit: number) {
   return (target: object, propertyKey: any) => {
-    const pattern = typeof patternOrContract === "string" ? patternOrContract : patternOrContract.subject;
+    const pattern = typeof patternOrContract === "string" 
+      ? patternOrContract 
+      : patternOrContract.getNatsConfig().subject;
+      
     const meta: NatsConcurrencyMeta = { pattern, limit };
     // We attach it directly to the method, since it modifies the specific handler's behavior
     Reflect.defineMetadata(NATSMQ_CONCURRENCY_METADATA, meta, target, propertyKey);
