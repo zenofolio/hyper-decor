@@ -98,6 +98,7 @@ export function OnNatsMessage(
     meta.subscriptions.set(key, {
       ...existing,
       subject,
+      originalSubject: typeof subjectOrAction === "string" ? subjectOrAction : (subjectOrAction as any).subject,
       schema,
       options,
       isRequest: false

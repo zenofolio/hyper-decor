@@ -28,6 +28,7 @@ export interface NatsSubscriptionMeta {
   methodName: string;
   className: string;
   subject: string;
+  originalSubject?: string;
   schema: z.ZodTypeAny;
   responseSchema?: z.ZodTypeAny;
   options: NatsSubscriptionOptions;

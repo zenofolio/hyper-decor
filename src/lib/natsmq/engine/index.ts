@@ -1,11 +1,11 @@
 import { connect, NatsConnection, JetStreamClient, JetStreamManager, StringCodec, JsMsg, JSONCodec, RetentionPolicy, Consumer } from "nats";
-import { 
-  NatsMQOptions, 
-  IConcurrencyStore, 
-  NatsMQMetrics, 
-  NatsSubscriptionMeta, 
-  NatsConcurrencyMeta, 
-  INatsProvider 
+import {
+  NatsMQOptions,
+  IConcurrencyStore,
+  NatsMQMetrics,
+  NatsSubscriptionMeta,
+  NatsConcurrencyMeta,
+  INatsProvider
 } from "../types";
 import { LocalConcurrencyStore } from "../store/local-store";
 import { z } from "zod";
@@ -41,11 +41,11 @@ export class NatsMQEngine {
    */
   public async getActiveCount(subject?: string | INatsProvider<any>): Promise<number> {
     if (!subject) return this.store.getGlobalActiveCount();
-    
-    const pattern = typeof subject === "string" 
-      ? subject 
+
+    const pattern = typeof subject === "string"
+      ? subject
       : subject.getNatsConfig().subject;
-      
+
     return this.store.getActiveCount(pattern);
   }
 
@@ -212,7 +212,7 @@ export class NatsMQEngine {
           while (localInflight >= maxLocalInflight) {
             await delay(100);
           }
-          process(); 
+          process();
         } else {
           process();
         }
@@ -258,11 +258,31 @@ export class NatsMQEngine {
       while (!success && (Date.now() - startAcquire < maxAcquireTime)) {
         locks = [];
         let allLocked = true;
-        
+
         try {
           for (const c of concurrencies) {
             const ttl = c.ttlMs || 60000;
-            const lock = await this.store.acquire([c.pattern], ttl, { limit: c.limit });
+            let lockKey = c.pattern;
+
+            // Resolve dynamic lock keys (e.g. "jobs.:id" -> "jobs.123")
+            if (lockKey.includes(':')) {
+              const baseSubject = meta.originalSubject || meta.subject;
+              const patternParts = baseSubject.split('.');
+              const subjectParts = msg.subject.split('.');
+
+              const parts = lockKey.split('.');
+              for (let i = 0; i < parts.length; i++) {
+                if (parts[i].startsWith(':')) {
+                  // Find the index in the original subject that matches this param
+                  const paramIndex = patternParts.findIndex(p => p === parts[i]);
+                  if (paramIndex !== -1 && subjectParts[paramIndex]) {
+                    lockKey = lockKey.replace(parts[i], subjectParts[paramIndex]);
+                  }
+                }
+              }
+            }
+
+            const lock = await this.store.acquire([lockKey], ttl, { limit: c.limit });
             if (!lock) {
               allLocked = false;
               break;
@@ -284,7 +304,7 @@ export class NatsMQEngine {
       }
 
       if (!success) {
-        msg.nak(); 
+        msg.nak();
         return false;
       }
 
@@ -327,6 +347,7 @@ export class NatsMQEngine {
     const payload = this.jc.encode(schema.parse(data));
     await this.js.publish(subject, payload);
   }
+
 
   async request<TReq, TRes>(subject: string, reqSchema: z.ZodType<TReq>, resSchema: z.ZodType<TRes>, data: TReq): Promise<TRes> {
     if (!this.nc || !this.running) throw new Error("Engine not started");

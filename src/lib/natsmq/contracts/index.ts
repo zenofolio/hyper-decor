@@ -11,10 +11,11 @@ export class NatsMessageContract<T, R = void> implements INatsProvider<T> {
 
   /**
    * Implements INatsProvider to return the contract's specific configuration.
+   * Converts named parameters (:key) to NATS wildcards (*) for subscriptions.
    */
   getNatsConfig() {
     return {
-      subject: this.subject,
+      subject: this.subject.replace(/:[a-zA-Z0-9]+/g, "*"),
       schema: this.schema,
       options: this.options
     };
@@ -22,13 +23,23 @@ export class NatsMessageContract<T, R = void> implements INatsProvider<T> {
 
   /**
    * Returns a new contract instance with dynamic subject parts filled.
-   * Replaces '*' or '>' tokens with provided arguments.
+   * If an object is provided, replaces ':key' tokens with values.
+   * If strings are provided, replaces '*' or '>' tokens sequentially.
    */
-  fill(...args: string[]): NatsMessageContract<T, R> {
+  fill(params: Record<string, string> | string, ...args: string[]): NatsMessageContract<T, R> {
     let newSubject = this.subject;
-    for (const arg of args) {
-      newSubject = newSubject.replace(/(\*|>)/, arg);
+
+    if (typeof params === "object" && params !== null) {
+      for (const [key, value] of Object.entries(params)) {
+        newSubject = newSubject.replace(`:${key}`, value);
+      }
+    } else if (typeof params === "string") {
+      const allArgs = [params, ...args];
+      for (const arg of allArgs) {
+        newSubject = newSubject.replace(/(\*|>)/, arg);
+      }
     }
+
     return new NatsMessageContract(newSubject, this.schema, this.responseSchema, this.options);
   }
 
@@ -90,8 +101,9 @@ export class ContractFactory implements INatsProvider<any> {
    * Implements INatsProvider to return a "catch-all" configuration for the entire queue.
    */
   getNatsConfig() {
+    const base = this.prefix ? (this.prefix.endsWith('.') ? `${this.prefix}>` : `${this.prefix}.>`) : ">";
     return {
-      subject: this.prefix ? (this.prefix.endsWith('.') ? `${this.prefix}>` : `${this.prefix}.>`) : ">",
+      subject: base.replace(/:[a-zA-Z0-9]+/g, "*"),
       schema: z.any(),
       options: this.baseOptions
     };

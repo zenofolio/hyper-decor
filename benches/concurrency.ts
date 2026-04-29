@@ -1,18 +1,19 @@
-import "reflect-metadata";
+import { connect } from "nats";
 import { fork, ChildProcess } from "child_process";
-import { connect, JSONCodec } from "nats";
 import path from "path";
+import { NatsMQService, RedisConcurrencyStore, RedisMetrics, defineQueue } from "../src/index";
 import { z } from "zod";
-import { NatsMQService } from "../src/lib/natsmq/service";
-import { RedisConcurrencyStore, RedisMetrics } from "../src/lib/natsmq";
 
-const delay = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
-const jc = JSONCodec();
+const delay = (ms: number) => new Promise(res => setTimeout(res, ms));
 const JobSchema = z.object({ id: z.number() });
 
-async function runConcurrencyBench() {
-  console.log("⚖️ Starting REAL DISTRIBUTED Concurrency Benchmark...");
+function renderBar(current: number, max: number, width: number = 20) {
+  const filled = Math.min(width, Math.floor((current / max) * width));
+  const empty = width - filled;
+  return `[${"#".repeat(filled)}${"-".repeat(empty)}] ${current}/${max}`;
+}
 
+async function runConcurrencyBench() {
   const { Redis } = await import("ioredis");
   const redis = new Redis("redis://localhost:6379");
   await redis.flushall();
@@ -25,7 +26,7 @@ async function runConcurrencyBench() {
   const jsm = await nc.jetstreamManager();
   console.log("[Bench] Cleaning NATS Stream...");
   try { await jsm.streams.delete("STR_STRESS"); } catch { }
-  await jsm.streams.add({ name: "STR_STRESS", subjects: ["jobs.stress.concurrency.*"] });
+  await jsm.streams.add({ name: "STR_STRESS", subjects: ["jobs.stress.concurrency.>"] });
 
   // 2. Shared Context
   const testPrefix = `test:concurrency:${Date.now()}`;
@@ -65,48 +66,54 @@ async function runConcurrencyBench() {
   await service.onInit();
   const engine = service.mq!.engine;
 
+  // Define the Contract
+  const Tasks = defineQueue("jobs.stress.concurrency", { stream: "STR_STRESS" });
+  // We use .fill() to shard by user
+  const TaskContract = Tasks.define("job.*", JobSchema);
+
   console.log(`[Bench] 🚀 BLASTING ${totalToSent} messages...`);
   const pubPromises = [];
   for (let i = 1; i <= 50; i++) {
-    pubPromises.push(engine.publish("jobs.stress.concurrency.A", JobSchema, { id: i }));
-    pubPromises.push(engine.publish("jobs.stress.concurrency.B", JobSchema, { id: i + 100 }));
+    pubPromises.push(engine.publish(TaskContract.fill("A"), { id: i }));
+    pubPromises.push(engine.publish(TaskContract.fill("B"), { id: i + 100 }));
   }
   await Promise.all(pubPromises);
   console.log("✅ BLAST COMPLETE");
 
   // 5. Monitor
-  console.log("[Bench] 📊 Monitoring across all processes...");
+  console.log("\n📊 REAL-TIME CONCURRENCY MONITOR");
+  console.log("=".repeat(50));
   const start = Date.now();
   let totalProcessed = 0;
   
   while (totalProcessed < totalToSent && Date.now() - start < 60000) {
-    // We monitor the wildcard pattern because that's where the limit is applied
-    const active = await engine.getActiveCount("jobs.stress.concurrency.*");
+    const active = await engine.getActiveCount("jobs.stress.concurrency.job.>");
     maxObserved = Math.max(maxObserved, active);
 
-    // Get individual success counts for visibility
-    const successA = await metrics.getCounter("success", "jobs.stress.concurrency.A");
-    const successB = await metrics.getCounter("success", "jobs.stress.concurrency.B");
-    totalProcessed = successA + successB;
+    const successA = await metrics.getCounter("success", "jobs.stress.concurrency.job.A");
+    const successB = await metrics.getCounter("success", "jobs.stress.concurrency.job.B");
+    
+    // Concurrency per user
+    const activeA = await engine.getActiveCount("jobs.stress.concurrency.job.A");
+    const activeB = await engine.getActiveCount("jobs.stress.concurrency.job.B");
 
-    process.stdout.write(`\r[Monitor] Processed: ${totalProcessed}/${totalToSent} (A:${successA} B:${successB}) | Active: ${active} | Max Observed: ${maxObserved}   `);
+    totalProcessed = await metrics.getCounter("success");
+
+    process.stdout.write(`\u001b[2J\u001b[0;0H`); // Clear screen and home
+    console.log(`📊 REAL-TIME CONCURRENCY MONITOR (Limit: ${CONCURRENCY_LIMIT})`);
+    console.log("=".repeat(50));
+    console.log(`User A: ${renderBar(activeA, CONCURRENCY_LIMIT)} | Done: ${successA}/50`);
+    console.log(`User B: ${renderBar(activeB, CONCURRENCY_LIMIT)} | Done: ${successB}/50`);
+    console.log("-".repeat(50));
+    console.log(`GLOBAL: ${renderBar(active, CONCURRENCY_LIMIT)} | Total: ${totalProcessed}/${totalToSent}`);
+    console.log(`Max Concurrent Observed: ${maxObserved}`);
+    console.log("=".repeat(50));
 
     if (totalProcessed < totalToSent) await delay(200);
   }
 
-  console.log("\n" + "=".repeat(40));
-  console.log("🏁 DISTRIBUTED RESULTS");
-  console.log("Shared Pattern Max Concurrency:", maxObserved);
-  console.log("Total Processed:", totalProcessed);
-
+  console.log("\n🏁 BENCHMARK COMPLETE");
   const success = maxObserved <= CONCURRENCY_LIMIT && totalProcessed === totalToSent;
-
-  if (success) {
-    console.log(`✅ SUCCESS: Distributed concurrency strictly enforced (Max ${CONCURRENCY_LIMIT}).`);
-  } else {
-    console.error(`❌ FAILURE: Limit violated (${maxObserved}) or messages lost (${totalProcessed}/${totalToSent})!`);
-  }
-  console.log("=".repeat(40) + "\n");
 
   for (const w of workers) w.kill();
   await nc.close();

@@ -21,6 +21,7 @@ export * from "./store/redis-store";
 export * from "./engine";
 export * from "./metrics";
 export * from "./cron";
+export * from "./service";
 
 // Explicitly export contracts
 export {
