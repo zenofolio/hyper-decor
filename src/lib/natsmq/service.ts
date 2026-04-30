@@ -170,4 +170,11 @@ export class NatsMQService {
   async getAverageLatency(target: string | INatsProvider<any>): Promise<number> {
     return this.metrics?.getAverageLatency(target) || 0;
   }
+
+  /**
+   * Gets the real-time pending and unacknowledged message counts from NATS.
+   */
+  async getPendingCount(contract: INatsProvider<any>): Promise<{ pending: number, unacked: number }> {
+    return this.mq?.engine.getPendingCount(contract) || { pending: 0, unacked: 0 };
+  }
 }

@@ -56,6 +56,40 @@ export class NatsMQEngine {
     return this.store.getGlobalActiveCount();
   }
 
+  /**
+   * Gets a specific metric counter from the provider.
+   */
+  public async getCounter(type: 'received' | 'success' | 'error', subject?: string | INatsProvider<any>): Promise<number> {
+    return this.options.metrics?.getCounter(type, subject) || 0;
+  }
+
+  /**
+   * Gets the average latency for a subject or provider.
+   */
+  public async getAverageLatency(subject?: string | INatsProvider<any>): Promise<number> {
+    return this.options.metrics?.getAverageLatency(subject || "") || 0;
+  }
+
+  /**
+   * Retrieves the number of pending and unacknowledged messages for a specific contract.
+   */
+  public async getPendingCount(contract: INatsProvider<any>): Promise<{ pending: number, unacked: number }> {
+    if (!this.jsm || !this.running) return { pending: 0, unacked: 0 };
+    const config = contract.getNatsConfig();
+    const stream = config.options.stream;
+    if (!stream) return { pending: 0, unacked: 0 };
+    const durableName = config.options.durable_name || stream;
+    try {
+      const info = await this.jsm.consumers.info(stream, durableName);
+      return {
+        pending: info.num_pending,
+        unacked: info.num_ack_pending
+      };
+    } catch (err) {
+      return { pending: 0, unacked: 0 };
+    }
+  }
+
   async start(): Promise<void> {
     if (this.running) return;
     try {
@@ -159,17 +193,19 @@ export class NatsMQEngine {
     if (!this.js || !this.running) throw new Error("Engine not started");
     const stream = meta.options.stream;
     if (!stream) throw new Error("Stream required for Pull Consumers");
-    
+
     // Priority: Explicit durable_name > Stream name > Method name fallback
     const durableName = meta.options.durable_name || stream || `${meta.methodName}_consumer`;
     const { stream: _stream, max_messages: _maxMsgs, ...natsOptions } = meta.options;
 
     try {
       await this.jsm?.consumers.info(stream, durableName);
-    } catch {
+    } catch (err) {
+      const { AckPolicy } = await import("nats");
       await this.jsm?.consumers.add(stream, {
         ...natsOptions,
         durable_name: durableName,
+        ack_policy: natsOptions.ack_policy || AckPolicy.Explicit,
         max_deliver: natsOptions.max_deliver || 100
       });
     }
@@ -180,7 +216,7 @@ export class NatsMQEngine {
     // Synchronization: Pull batch size and local inflight
     const maxAckPending = natsOptions.max_ack_pending || 1000;
     const pullBatch = meta.options.max_messages || Math.min(50, maxAckPending);
-    
+
     const messages = await consumer.consume({
       max_messages: pullBatch,
     });

@@ -1,5 +1,5 @@
 import { Redis } from "ioredis";
-import { INatsMetrics, NatsMQMetrics } from "../types";
+import { INatsMetrics, INatsProvider, NatsMQMetrics } from "../types";
 
 export interface RedisMetricsOptions {
   redis: Redis;
@@ -37,7 +37,7 @@ export class RedisMetrics implements INatsMetrics {
 
   async getCounter(type: 'received' | 'success' | 'error', subject?: string | INatsProvider<any>): Promise<number> {
     const target = this.resolveSubject(subject);
-    
+
     if (!target || target === ">") {
       // No subject or global wildcard: sum all fields in the hash
       const vals = await this.redis.hvals(`${this.prefix}:${type}`);
@@ -84,7 +84,7 @@ export class RedisMetrics implements INatsMetrics {
       total = parseInt(t || "0");
       count = parseInt(c || "0");
     }
-    
+
     return count === 0 ? 0 : total / count;
   }
 
@@ -125,7 +125,7 @@ export class RedisMetrics implements INatsMetrics {
     ];
 
     const results = await Promise.all(keys.map(k => this.redis.hgetall(k)));
-    
+
     return {
       received: results[0],
       success: results[1],

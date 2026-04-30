@@ -92,7 +92,6 @@ describe("NatsMQ Concurrency Stores", () => {
     beforeEach(async () => {
       if (isConnected) {
         store = new RedisConcurrencyStore({ redis });
-        await redis.flushall();
       }
     });
 
