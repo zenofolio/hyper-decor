@@ -159,7 +159,9 @@ export class NatsMQEngine {
     if (!this.js || !this.running) throw new Error("Engine not started");
     const stream = meta.options.stream;
     if (!stream) throw new Error("Stream required for Pull Consumers");
-    const durableName = meta.options.durable_name || `${meta.methodName}_consumer`;
+    
+    // Priority: Explicit durable_name > Stream name > Method name fallback
+    const durableName = meta.options.durable_name || stream || `${meta.methodName}_consumer`;
     const { stream: _stream, max_messages: _maxMsgs, ...natsOptions } = meta.options;
 
     try {
