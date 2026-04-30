@@ -93,6 +93,7 @@ NatsMQ allows you to tune the underlying **NATS JetStream Consumer** directly th
 |--------|-------------|----------|
 | `.withMaxInflight(n)` | Max messages pending ACK (Inflight) | `max_ack_pending` |
 | `.withMaxDeliver(n)` | Max delivery attempts before failing | `max_deliver` |
+| `.withStorage(type, [retention])` | Set Stream Storage (Memory/File) and Retention | `storage`, `retention` |
 | `.withOptions(obj)` | Pass any NATS `ConsumerConfig` | Mixed |
 
 ```typescript
@@ -100,11 +101,15 @@ NatsMQ allows you to tune the underlying **NATS JetStream Consumer** directly th
 const HeavyTask = Orders.define("process")
   .withMaxInflight(10) // Only pull 10 messages from NATS at a time
   .withMaxDeliver(5)   // Give up after 5 failed attempts
+  .withStorage(StorageType.Memory) // Use in-memory storage for this stream
   .withOptions({ 
      ack_wait: 30000,   // Wait 30s for ACK
      max_messages: 5    // Pull in batches of 5
   });
 ```
+
+> [!WARNING]
+> **Stream Storage Immutability**: NATS Stream storage type (`File` vs `Memory`) can only be set during stream creation. If you attempt to change the storage type of an existing stream through a contract, NatsMQ will ignore the change in the update cycle to avoid errors.
 
 > [!TIP]
 > **Max Inflight vs Global Concurrency**: `withMaxInflight` controls how many messages NATS will send to a single worker. `@MaxAckPendingPerSubject` controls how many workers in the **entire cluster** can process a specific subject simultaneously.

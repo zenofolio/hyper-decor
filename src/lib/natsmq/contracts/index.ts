@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { NatsSubscriptionOptions, INatsProvider } from "../types";
+import { RetentionPolicy, StorageType } from "nats";
 
 export class NatsMessageContract<T, R = void> implements INatsProvider<T> {
   constructor(
@@ -7,7 +8,7 @@ export class NatsMessageContract<T, R = void> implements INatsProvider<T> {
     public readonly schema: z.ZodType<T>,
     public readonly responseSchema?: z.ZodType<R>,
     public readonly options: NatsSubscriptionOptions = {}
-  ) {}
+  ) { }
 
   /**
    * Implements INatsProvider to return the contract's specific configuration.
@@ -53,6 +54,10 @@ export class NatsMessageContract<T, R = void> implements INatsProvider<T> {
     return this.withOptions({ stream: name });
   }
 
+  withStorage(storage: StorageType, retention?: RetentionPolicy): NatsMessageContract<T, R> {
+    return this.withOptions({ storage, retention: retention || RetentionPolicy.Interest });
+  }
+
   /**
    * Sets a durable name for the consumer associated with this contract.
    */
@@ -66,7 +71,7 @@ export class NatsMessageContract<T, R = void> implements INatsProvider<T> {
   withConcurrency(pattern: string, limit: number, ttlMs?: number): NatsMessageContract<T, R> {
     const concurrencies = [...(this.options.concurrencies || [])];
     const index = concurrencies.findIndex(c => c.pattern === pattern);
-    
+
     if (index !== -1) {
       concurrencies[index] = { ...concurrencies[index], limit, ttlMs };
     } else {
@@ -126,7 +131,7 @@ export class ContractFactory implements INatsProvider<any> {
     responseSchema?: z.ZodType<R>,
     options: NatsSubscriptionOptions = {}
   ): NatsMessageContract<T, R> {
-    const fullSubject = this.prefix 
+    const fullSubject = this.prefix
       ? (this.prefix.endsWith('.') || subject.startsWith('.') ? `${this.prefix}${subject}` : `${this.prefix}.${subject}`)
       : subject;
 

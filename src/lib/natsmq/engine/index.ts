@@ -1,4 +1,4 @@
-import { connect, NatsConnection, JetStreamClient, JetStreamManager, StringCodec, JsMsg, JSONCodec, RetentionPolicy, Consumer } from "nats";
+import { connect, NatsConnection, JetStreamClient, JetStreamManager, StringCodec, JsMsg, JSONCodec, RetentionPolicy, Consumer, StorageType } from "nats";
 import {
   NatsMQOptions,
   IConcurrencyStore,
@@ -157,7 +157,8 @@ export class NatsMQEngine {
         await this.jsm.streams.add({
           name: streamName,
           subjects: [meta.subject],
-          retention: RetentionPolicy.Limits,
+          retention: meta.options?.retention || RetentionPolicy.Limits,
+          storage: meta.options?.storage || StorageType.File
         });
       } else {
         throw err;

@@ -35,7 +35,7 @@ import { CronScheduler } from "./cron";
 import { DefaultNatsMQMetrics } from "./metrics";
 import { NatsMQOptions, NatsMQMetrics } from "./types";
 import { LocalConcurrencyStore } from "./store/local-store";
-import { JsMsg } from "nats";
+import { JsMsg, RetentionPolicy, StorageType } from "nats";
 import { getNatsMQMeta } from "./meta";
 import { NatsMQService } from "./service";
 
@@ -118,7 +118,9 @@ export class NatsMQ {
       schema?: z.ZodType<T>,
       concurrency?: number,
       stream?: string,
-      durable?: string
+      durable?: string,
+      storage?: StorageType,
+      retention?: RetentionPolicy
     } = {}
   ): Promise<void> {
     let subject: string;
@@ -135,6 +137,8 @@ export class NatsMQ {
       finalOptions = {
         stream: config.options.stream,
         durable: config.options.durable_name,
+        storage: config.options.storage,
+        retention: config.options.retention,
         ...options
       };
     }
@@ -154,6 +158,8 @@ export class NatsMQ {
         stream: finalOptions.stream || "default_stream",
         durable_name: finalOptions.durable || `cons_${subject.replace(/[^a-zA-Z0-9]/g, '_')}`,
         filter_subject: subject,
+        storage: finalOptions.storage,
+        retention: finalOptions.retention
       },
       isRequest: false,
       concurrencies

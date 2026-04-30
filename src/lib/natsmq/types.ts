@@ -1,5 +1,5 @@
 import { z } from "zod";
-import type { ConsumerConfig } from "nats";
+import type { ConsumerConfig, RetentionPolicy, StorageType } from "nats";
 import { ILock, ILockManager, LockOptions } from "../lock/lock";
 
 // --- NATS Configuration & Provider ---
@@ -12,6 +12,8 @@ export interface NatsSubscriptionOptions extends Partial<ConsumerConfig> {
    * Defaults to 50 or max_ack_pending if smaller.
    */
   max_messages?: number;
+  storage?: StorageType
+  retention?: RetentionPolicy
 }
 
 /**
