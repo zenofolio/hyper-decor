@@ -6,7 +6,9 @@ import {
   NatsCronMeta,
   NatsConcurrencyMeta,
   INatsProvider,
-  CronOptions
+  CronOptions,
+  NatsMQMetadata,
+  NatsMQAppOptions
 } from "../types";
 import { getNatsMQMeta } from "../meta";
 
@@ -31,7 +33,7 @@ export function NatsMQWorker(queue: INatsProvider<unknown>): ClassDecorator {
 /**
  * Top-level decorator to define the entry point of the NatsMQ application.
  */
-export function NatsMQApp(options: any): ClassDecorator {
+export function NatsMQApp(options?: NatsMQAppOptions): ClassDecorator {
   return (target: any) => {
     const meta = getNatsMQMeta(target);
     meta.appConfig = options;
@@ -63,7 +65,7 @@ export function OnNatsMessage(
       // which will initialize the class meta.
       // For now, let's try to use the method as a key or store in a global weakmap?
       // Actually, let's just use the method as the target for now and fix getNatsMQMeta.
-      constructor = target; 
+      constructor = target;
     } else {
       // Legacy
       constructor = propertyKey === undefined ? (target as Function) : target.constructor as Function;
@@ -119,7 +121,7 @@ export function OnCron(name: string, schedule: string, options?: CronOptions): a
     if (isStage3) {
       const context = propertyKey as any;
       propertyName = String(context.name);
-      constructor = target; 
+      constructor = target;
     } else {
       constructor = propertyKey === undefined ? (target as Function) : target.constructor as Function;
       propertyName = propertyKey === undefined ? "class_cron" : String(propertyKey);
@@ -127,7 +129,7 @@ export function OnCron(name: string, schedule: string, options?: CronOptions): a
 
     const { crons } = getNatsMQMeta(constructor);
     const key = generateMetaKey(constructor.name, propertyName);
-    
+
     crons.set(key, {
       key,
       methodName: propertyName,

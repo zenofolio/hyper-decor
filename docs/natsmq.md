@@ -65,15 +65,7 @@ await service.mq.engine.createPullConsumer(
 );
 ```
 
-## 4. High-Performance Throughput
-
-NatsMQ is optimized for high-volume workloads, capable of exceeding **30,000 msg/sec**. To achieve maximum performance:
-
-1.  **Parallel Processing**: Avoid `await` in the main consumer loop for non-critical tasks.
-2.  **Batching**: NatsMQ automatically pulls messages in batches (default 50) to minimize network roundtrips.
-3.  **Local Buffering**: Use the built-in inflight control to balance local task execution with global concurrency limits.
-
-## 5. Distributed Concurrency & Cron
+## 4. Distributed Concurrency & Cron
 
 NatsMQ provides absolute mutual exclusion for distributed environments.
 
@@ -84,7 +76,15 @@ Use `@MaxAckPendingPerSubject` to enforce that only `N` messages of a specific t
 Use `@OnCron` to ensure a task runs exactly once in the entire cluster at a specific time, even if multiple servers are running the same service.
 
 ```typescript
+@HyperService()
 class BackupService {
+  @OnCron("Daily Backup", "0 0 * * *")
+  async run() {
+    console.log("Running daily backup...");
+  }
+}
+```
+
 ## 5. Advanced NATS Options (Inflight & Delivery)
 
 NatsMQ allows you to tune the underlying **NATS JetStream Consumer** directly through the contract fluent API.
@@ -122,11 +122,7 @@ NatsMQ is optimized for high-volume workloads (>30,000 msg/sec).
 - **Inflight Control**: NatsMQ pulls messages in batches (customizable via `max_messages`) and processes them in parallel while respecting your concurrency limits.
 - **NAK Storm Protection**: If a worker hits a global limit, it won't "NAK storm" NATS; instead, it uses a smart local retry loop with jitter to wait for the next available slot within its local inflight buffer.
 
-## 7. Distributed Cron Jobs
-
-NatsMQ Crons use temporal bucketing to ensure a task runs **exactly once** in the whole cluster.
-
-## 8. Publishing & Requests
+## 7. Publishing & Requests
 
 ```typescript
 const mq = NatsMQService.getInstance().mq;
@@ -138,3 +134,4 @@ await mq.engine.publish(OrderCreated, { id: "ORD-123" });
 const status = await mq.engine.request(GetOrder, { id: "ORD-123" });
 console.log(status.status); // "shipped"
 ```
+
