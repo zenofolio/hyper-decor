@@ -33,7 +33,7 @@ export function NatsMQWorker(queue: INatsProvider<unknown>): ClassDecorator {
 /**
  * Top-level decorator to define the entry point of the NatsMQ application.
  */
-export function NatsMQApp(options?: NatsMQAppOptions): ClassDecorator {
+export function NatsMQApp(options: NatsMQAppOptions): ClassDecorator {
   return (target: any) => {
     const meta = getNatsMQMeta(target);
     meta.appConfig = options;
