@@ -46,8 +46,8 @@ export class NatsMQService {
     return instances;
   }
 
-  private async registerClass(target: new (...args: unknown[]) => unknown) {
-    const instance = container.resolve(target as new (...args: unknown[]) => unknown) as object;
+  private async registerClass(target: new (...args: any[]) => any) {
+    const instance = container.resolve(target as new (...args: any[]) => any) as object;
     await this.registerInstance(instance);
     return instance;
   }
@@ -122,7 +122,7 @@ export class NatsMQService {
       if (classConfig.queue && (classConfig.queue as any).define) {
         const factory = classConfig.queue as any;
         const prefix = factory.prefix || "";
-        
+
         if (!sub.subject.includes('.') || !sub.subject.startsWith(prefix)) {
           const contract = factory.define(sub.subject, sub.schema, undefined, sub.options);
           const config = contract.getNatsConfig();
