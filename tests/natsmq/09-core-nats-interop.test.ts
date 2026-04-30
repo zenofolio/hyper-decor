@@ -28,10 +28,10 @@ describe("NatsMQ: Core NATS Interoperability", async () => {
     }
 
     @OnMessage(CoreMsg.subject)
-    async Message(data: any) {}
+    async Message(data: any) { }
 
     @OnMessage(CoreMsg.subject)
-    async Message2(data: any) {}
+    async Message2(data: any) { }
   }
 
   @HyperApp({
@@ -75,8 +75,7 @@ describe("NatsMQ: Core NATS Interoperability", async () => {
     // This is "fire and forget" from the producer side
 
 
-    service.mq?.engine.publish(CoreMsg, payload);
-
+    nc.publish(CoreMsg.subject, jc.encode(payload))
     // Wait for the worker to pick it up from the stream
     await new Promise((resolve) => {
       const start = Date.now();
