@@ -1,6 +1,6 @@
 import { container } from "tsyringe";
 import { NatsMQ } from "./index";
-import { NatsMQOptions, NatsSubscriptionMeta, NatsMQMetadata } from "./types";
+import { NatsMQOptions, NatsSubscriptionMeta, NatsMQMetadata, NatsMQMetrics, INatsProvider } from "./types";
 import { getNatsMQMeta } from "./meta";
 import { NatsMQWorkerOptions } from "./types";
 
@@ -151,5 +151,23 @@ export class NatsMQService {
     if (this.mq) {
       await this.mq.close();
     }
+  }
+
+  get metrics(): NatsMQMetrics | undefined {
+    return this.mq?.engine.metrics;
+  }
+
+  /**
+   * Gets a specific counter metric for a subject, contract or queue.
+   */
+  async getCounter(type: 'received' | 'success' | 'error', target?: string | INatsProvider<any>): Promise<number> {
+    return this.metrics?.getCounter(type, target) || 0;
+  }
+
+  /**
+   * Gets the average latency for a subject, contract or queue.
+   */
+  async getAverageLatency(target: string | INatsProvider<any>): Promise<number> {
+    return this.metrics?.getAverageLatency(target) || 0;
   }
 }

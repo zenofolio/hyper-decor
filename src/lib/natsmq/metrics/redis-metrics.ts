@@ -35,25 +35,57 @@ export class RedisMetrics implements INatsMetrics {
     await this.redis.hincrby(`${this.prefix}:cron:errors`, name, 1);
   }
 
-  async getCounter(type: 'received' | 'success' | 'error', subject?: string): Promise<number> {
-    if (subject) {
-      const val = await this.redis.hget(`${this.prefix}:${type}`, subject);
-      return parseInt(val || "0");
+  async getCounter(type: 'received' | 'success' | 'error', subject?: string | INatsProvider<any>): Promise<number> {
+    const target = this.resolveSubject(subject);
+    
+    if (!target || target === ">") {
+      // No subject or global wildcard: sum all fields in the hash
+      const vals = await this.redis.hvals(`${this.prefix}:${type}`);
+      return vals.reduce((acc, v) => acc + parseInt(v || "0"), 0);
     }
 
-    // No subject: sum all fields in the hash
-    const vals = await this.redis.hvals(`${this.prefix}:${type}`);
-    return vals.reduce((acc, v) => acc + parseInt(v || "0"), 0);
+    if (target.endsWith(">") || target.endsWith("*")) {
+      const prefix = target.slice(0, -1);
+      const all = await this.redis.hgetall(`${this.prefix}:${type}`);
+      return Object.keys(all)
+        .filter(k => k.startsWith(prefix))
+        .reduce((acc, k) => acc + parseInt(all[k] || "0"), 0);
+    }
+
+    const val = await this.redis.hget(`${this.prefix}:${type}`, target);
+    return parseInt(val || "0");
   }
 
-  async getAverageLatency(subject: string): Promise<number> {
-    const total = await this.redis.hget(`${this.prefix}:latency:total`, subject);
-    const count = await this.redis.hget(`${this.prefix}:success`, subject);
+  async getAverageLatency(subject: string | INatsProvider<any>): Promise<number> {
+    const target = this.resolveSubject(subject);
+    if (!target) return 0;
+
+    let total = 0;
+    let count = 0;
+
+    if (target.endsWith(">") || target.endsWith("*")) {
+      const prefix = target.slice(0, -1);
+      const [allTotal, allCount] = await Promise.all([
+        this.redis.hgetall(`${this.prefix}:latency:total`),
+        this.redis.hgetall(`${this.prefix}:success`)
+      ]);
+
+      Object.keys(allCount)
+        .filter(k => k.startsWith(prefix))
+        .forEach(k => {
+          total += parseInt(allTotal[k] || "0");
+          count += parseInt(allCount[k] || "0");
+        });
+    } else {
+      const [t, c] = await Promise.all([
+        this.redis.hget(`${this.prefix}:latency:total`, target),
+        this.redis.hget(`${this.prefix}:success`, target)
+      ]);
+      total = parseInt(t || "0");
+      count = parseInt(c || "0");
+    }
     
-    const t = parseInt(total || "0");
-    const c = parseInt(count || "0");
-    
-    return c === 0 ? 0 : t / c;
+    return count === 0 ? 0 : total / count;
   }
 
   // --- NatsMQMetrics Implementation (Cron/General) ---
@@ -70,17 +102,37 @@ export class RedisMetrics implements INatsMetrics {
 
   // --- Utilities ---
 
+  private resolveSubject(subject?: string | INatsProvider<any>): string | undefined {
+    if (!subject) return undefined;
+    if (typeof subject === "string") return subject;
+    return subject.getNatsConfig().subject;
+  }
+
   private serializeKey(name: string, labels?: Record<string, string>): string {
     if (!labels) return name;
     const sortedLabels = Object.keys(labels).sort().map(k => `${k}=${labels[k]}`).join(',');
     return `${name}{${sortedLabels}}`;
   }
 
-  async getSnapshot(): Promise<{ counters: Record<string, string>, gauges: Record<string, string> }> {
-    const [counters, gauges] = await Promise.all([
-      this.redis.hgetall(`${this.prefix}:counters`),
-      this.redis.hgetall(`${this.prefix}:gauges`)
-    ]);
-    return { counters, gauges };
+  async getSnapshot(): Promise<any> {
+    const keys = [
+      `${this.prefix}:received`,
+      `${this.prefix}:success`,
+      `${this.prefix}:error`,
+      `${this.prefix}:latency:total`,
+      `${this.prefix}:counters`,
+      `${this.prefix}:gauges`
+    ];
+
+    const results = await Promise.all(keys.map(k => this.redis.hgetall(k)));
+    
+    return {
+      received: results[0],
+      success: results[1],
+      error: results[2],
+      latency: results[3],
+      counters: results[4],
+      gauges: results[5]
+    };
   }
 }

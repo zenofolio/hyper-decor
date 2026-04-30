@@ -97,8 +97,8 @@ export interface INatsMetrics {
   recordCronError(name: string, error: string): void | Promise<void>;
   increment(name: string, value?: number, labels?: Record<string, string>): void | Promise<void>;
   gauge(name: string, value: number, labels?: Record<string, string>): void | Promise<void>;
-  getCounter(type: 'received' | 'success' | 'error', subject?: string): Promise<number>;
-  getAverageLatency(subject: string): Promise<number>;
+  getCounter(type: 'received' | 'success' | 'error', subject?: string | INatsProvider<any>): Promise<number>;
+  getAverageLatency(subject: string | INatsProvider<any>): Promise<number>;
 }
 
 export type NatsMQMetrics = INatsMetrics;
