@@ -78,6 +78,8 @@ export interface NatsMQAppOptions {
   servers?: string | string[];
   workers?: Array<new (...args: any[]) => any>;
   queues?: INatsProvider<unknown>[];
+  metrics?: INatsMetrics;
+  concurrencyStore?: IConcurrencyStore;
 }
 
 export interface NatsMQMetadata {

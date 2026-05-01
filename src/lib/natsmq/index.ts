@@ -30,10 +30,12 @@ export {
   defineQueue
 } from "./contracts";
 
+export { RedisMetrics, DefaultNatsMQMetrics } from "./metrics";
+
 import { NatsMQEngine } from "./engine";
 import { CronScheduler } from "./cron";
 import { DefaultNatsMQMetrics } from "./metrics";
-import { NatsMQOptions, NatsMQMetrics } from "./types";
+import { NatsMQOptions, NatsMQMetrics, INatsProvider } from "./types";
 import { LocalConcurrencyStore } from "./store/local-store";
 import { JsMsg, RetentionPolicy, StorageType } from "nats";
 import { getNatsMQMeta } from "./meta";
@@ -64,13 +66,15 @@ export class NatsMQ {
       throw new Error(`Class ${appClass.name} is not a valid @NatsMQApp`);
     }
 
-    const { servers, workers = [], queues = [] } = meta.appConfig;
+    const { servers, workers = [], queues = [], metrics, concurrencyStore } = meta.appConfig;
     const service = NatsMQService.getInstance();
 
     // Configure if not already configured
     if (!service.mq) {
       service.configure({
-        servers: servers || "nats://localhost:4222"
+        servers: servers || "nats://localhost:4222",
+        metrics,
+        concurrencyStore
       });
     }
 
@@ -105,7 +109,7 @@ export class NatsMQ {
         instances.push(instance);
         const { tasks, crons } = await service.collectWorkerMetadata(instance);
         allTasks.push(...tasks);
-        
+
         // Schedule crons immediately as they are local to the process
         for (const { meta, handler } of crons) {
           service.mq!.cron.schedule(meta, handler);
@@ -179,7 +183,7 @@ export class NatsMQ {
       schema,
       options: {
         stream: finalOptions.stream || "default_stream",
-        durable_name: finalOptions.durable || `cons_${subject.replace(/[^a-zA-Z0-9]/g, '_')}`,
+        durable_name: this.engine.getEffectiveDurableName(subject, finalOptions),
         filter_subject: subject,
         storage: finalOptions.storage,
         retention: finalOptions.retention
@@ -192,5 +196,56 @@ export class NatsMQ {
     await this.engine.createPullConsumer(meta, concurrencies, (data: unknown, msg: JsMsg) => {
       return handler(data as T, msg);
     });
+  }
+
+  /**
+   * Retrieves multiple metrics at once for a specific target or the entire system.
+   * 
+   * @param types List of metric types to retrieve: 'active', 'pending', 'unacked', 'received', 'success', 'error'
+   * @param target Optional subject, contract or queue provider
+   */
+  async count(
+    types: Array<'active' | 'pending' | 'unacked' | 'received' | 'success' | 'error'>,
+    target?: string | INatsProvider<any>
+  ): Promise<Record<string, number>> {
+    const results: Record<string, number> = {};
+    const pendingStatsTypes = ['pending', 'unacked'];
+    const metricsTypes = ['received', 'success', 'error'];
+
+    // 1. Fetch from Metrics Provider
+    const activeMetricsTypes = types.filter(t => metricsTypes.includes(t)) as any[];
+    if (activeMetricsTypes.length > 0) {
+      for (const type of activeMetricsTypes) {
+        results[type] = await this.metrics.getCounter(type, target);
+      }
+    }
+
+    // 2. Fetch from Engine (JetStream Stats)
+    if (types.some(t => pendingStatsTypes.includes(t))) {
+      if (target && typeof target !== 'string') {
+        const stats = await this.engine.getPendingCount(target);
+        if (types.includes('pending')) results['pending'] = stats.pending;
+        if (types.includes('unacked')) results['unacked'] = stats.unacked;
+      } else {
+        // Global or raw subject pending count is harder to get in a single pass 
+        // without knowing the consumer name. Fallback to 0 if not a provider.
+        if (types.includes('pending')) results['pending'] = 0;
+        if (types.includes('unacked')) results['unacked'] = 0;
+      }
+    }
+
+    // 3. Fetch from Store (Active Concurrency)
+    if (types.includes('active')) {
+      results['active'] = await this.engine.getActiveCount(target);
+    }
+
+    return results;
+  }
+
+  /**
+   * Gets the average latency for a subject, contract or queue.
+   */
+  async getAverageLatency(target: string | INatsProvider<any>): Promise<number> {
+    return this.metrics.getAverageLatency(target);
   }
 }

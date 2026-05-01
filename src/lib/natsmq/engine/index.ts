@@ -80,7 +80,9 @@ export class NatsMQEngine {
     const config = contract.getNatsConfig();
     const stream = config.options.stream;
     if (!stream) return { pending: 0, unacked: 0 };
-    const durableName = config.options.durable_name || stream;
+    
+    const durableName = this.getEffectiveDurableName(config.subject, config.options);
+    
     try {
       const info = await this.jsm.consumers.info(stream, durableName);
       return {
@@ -209,7 +211,7 @@ export class NatsMQEngine {
           name: stream,
           subjects: subjects,
           retention: options.retention || RetentionPolicy.Limits,
-          storage: options.storage || StorageType.File,
+          storage: options.storage || StorageType.Memory,
           duplicate_window: options.duplicate_window_ns || this.sec_to_ns(3600)
         });
       } else {
@@ -226,7 +228,7 @@ export class NatsMQEngine {
     const stream = meta.options.stream;
     if (!stream) return;
 
-    const durableName = meta.options.durable_name || `${meta.methodName}_consumer`;
+    const durableName = this.getEffectiveDurableName(meta.subject, meta.options);
     const { stream: _stream, ...natsOptions } = meta.options;
 
     try {
@@ -272,8 +274,7 @@ export class NatsMQEngine {
     const stream = meta.options.stream;
     if (!stream) throw new Error("Stream required for Pull Consumers");
 
-    // Priority: Explicit durable_name > Stream name > Method name fallback
-    const durableName = meta.options.durable_name || stream || `${meta.methodName}_consumer`;
+    const durableName = this.getEffectiveDurableName(meta.subject, meta.options);
     const { stream: _stream, max_messages: _maxMsgs, ...natsOptions } = meta.options;
 
     try {
@@ -501,5 +502,14 @@ export class NatsMQEngine {
 
   private sec_to_ns(sec: number): number {
     return Math.round(sec * 1_000_000_000);
+  }
+
+  /**
+   * Internal helper to resolve the durable name for a consumer.
+   */
+  public getEffectiveDurableName(subject: string, options: NatsSubscriptionOptions): string {
+    if (options.durable_name) return options.durable_name;
+    // Default convention: cons_ + subject (sanitized)
+    return `cons_${subject.replace(/[^a-zA-Z0-9]/g, '_')}`;
   }
 }
