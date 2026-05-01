@@ -65,6 +65,11 @@ export interface NatsCronMeta {
   options?: CronOptions;
 }
 
+export interface SubscriptionTask {
+  meta: NatsSubscriptionMeta;
+  handler?: (data: any, msg: any) => Promise<void>;
+}
+
 export interface NatsMQWorkerOptions {
   queue?: INatsProvider<unknown>;
 }

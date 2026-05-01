@@ -1,8 +1,16 @@
 import { container } from "tsyringe";
 import { NatsMQ } from "./index";
-import { NatsMQOptions, NatsSubscriptionMeta, NatsMQMetadata, NatsMQMetrics, INatsProvider } from "./types";
+import {
+  NatsMQOptions,
+  NatsSubscriptionMeta,
+  NatsMQMetadata,
+  NatsMQMetrics,
+  INatsProvider,
+  SubscriptionTask,
+  NatsCronMeta,
+  NatsMQWorkerOptions
+} from "./types";
 import { getNatsMQMeta } from "./meta";
-import { NatsMQWorkerOptions } from "./types";
 
 export class NatsMQService {
   private static instance: NatsMQService;
@@ -34,31 +42,49 @@ export class NatsMQService {
    * Returns an array of the registered instances.
    */
   public async register(...targets: any[]): Promise<any[]> {
-    const instances = [];
-    for (const target of targets) {
-      if (typeof target === "function") {
-        instances.push(await this.registerClass(target));
-      } else {
-        await this.registerInstance(target);
-        instances.push(target);
-      }
-    }
-    return instances;
-  }
-
-  private async registerClass(target: new (...args: any[]) => any) {
-    const instance = container.resolve(target as new (...args: any[]) => any) as object;
-    await this.registerInstance(instance);
-    return instance;
-  }
-
-  public async registerInstance(target: any) {
     if (!this.mq) {
       throw new Error("NatsMQ not configured. Call configure() first.");
     }
 
+    const instances = [];
+    const allTasks: SubscriptionTask[] = [];
+    const allCrons: { meta: NatsCronMeta, handler: any }[] = [];
+
+    for (const target of targets) {
+      let instance: any = target;
+      if (typeof target === "function") {
+        instance = container.resolve(target as new (...args: any[]) => any);
+      }
+      instances.push(instance);
+
+      const { tasks, crons } = await this.collectWorkerMetadata(instance);
+      allTasks.push(...tasks);
+      allCrons.push(...crons);
+    }
+
+    // 1. Batch Infrastructure
+    await this.mq.engine.provisionInfrastructure(allTasks);
+
+    // 2. Activate Consumers
+    await this.mq.engine.activateConsumers(allTasks);
+
+    // 3. Setup Crons
+    for (const { meta, handler } of allCrons) {
+      this.mq.cron.schedule(meta, handler);
+    }
+
+    return instances;
+  }
+
+  /**
+   * Discovers and collects all metadata for a worker instance without activating anything.
+   */
+  public async collectWorkerMetadata(instance: any): Promise<{ tasks: SubscriptionTask[], crons: { meta: NatsCronMeta, handler: any }[] }> {
+    const tasks: SubscriptionTask[] = [];
+    const crons: { meta: NatsCronMeta, handler: any }[] = [];
+
     // 1. Get class-level metadata
-    const classMeta = getNatsMQMeta(target);
+    const classMeta = getNatsMQMeta(instance.constructor);
     const combinedMeta: NatsMQMetadata = {
       subscriptions: new Map(classMeta.subscriptions),
       crons: new Map(classMeta.crons),
@@ -67,21 +93,19 @@ export class NatsMQService {
     };
 
     // 2. Discover method-level metadata (for Stage 3 decorators)
-    const prototype = Object.getPrototypeOf(target);
+    const prototype = Object.getPrototypeOf(instance);
     if (prototype) {
       const methods = Object.getOwnPropertyNames(prototype);
       for (const methodName of methods) {
         if (methodName === "constructor") continue;
-        const method = target[methodName];
+        const method = instance[methodName];
         if (typeof method === "function") {
           const methodMeta = getNatsMQMeta(method);
-          // Merge subscriptions
           if (methodMeta.subscriptions.size > 0) {
             for (const [key, sub] of Array.from(methodMeta.subscriptions.entries())) {
               combinedMeta.subscriptions.set(key, sub);
             }
           }
-          // Merge crons
           if (methodMeta.crons.size > 0) {
             for (const [key, cron] of Array.from(methodMeta.crons.entries())) {
               combinedMeta.crons.set(key, cron);
@@ -91,60 +115,50 @@ export class NatsMQService {
       }
     }
 
-    if (combinedMeta.subscriptions.size === 0 && combinedMeta.crons.size === 0) {
-      const constructor = typeof target === "function" ? target : target.constructor;
-      console.warn(`[Service] ⚠️ No NatsMQ decorators found on ${constructor.name}`);
-      return;
-    }
-
     const classConfig: NatsMQWorkerOptions = combinedMeta.workerOptions || {};
 
-    // 1. Auto-provision the primary queue/stream
-    if (classConfig.queue) {
-      const config = classConfig.queue.getNatsConfig();
-      await this.mq.engine.provisionStream({
-        subject: config.subject,
-        options: config.options,
-        key: `app:${config.subject}`,
-        methodName: "factory",
-        className: target.constructor.name,
-        schema: config.schema,
-        isRequest: false,
-        concurrencies: []
-      });
-    }
+    // 3. Process Subscriptions
+    for (const sub of Array.from(combinedMeta.subscriptions.values())) {
+      let resolvedSub: NatsSubscriptionMeta = { ...sub };
+      const handler = instance[sub.methodName].bind(instance);
 
-    // 2. Setup NATS Consumers
-    const subsList = Array.from(combinedMeta.subscriptions.values());
-    for (const sub of subsList) {
-      let resolvedSub: NatsSubscriptionMeta = sub;
-
-      if (classConfig.queue && (classConfig.queue as any).define) {
+      if (classConfig.queue) {
         const factory = classConfig.queue as any;
-        const prefix = factory.prefix || "";
+        const qConfig = factory.getNatsConfig();
 
-        if (!sub.subject.includes('.') || !sub.subject.startsWith(prefix)) {
+        // Inherit stream if not defined
+        resolvedSub.options = {
+          ...qConfig.options,
+          ...resolvedSub.options,
+          stream: resolvedSub.options.stream || qConfig.options.stream
+        };
+
+        // If it's a factory, ensure the subject is resolved/prefixed
+        if (factory.define && (!sub.subject.includes('.') || !sub.subject.startsWith(factory.prefix || ""))) {
           const contract = factory.define(sub.subject, sub.schema, undefined, sub.options);
           const config = contract.getNatsConfig();
-          resolvedSub = {
-            ...sub,
-            subject: config.subject,
-            options: { ...config.options, filter_subject: config.subject }
-          };
+          resolvedSub.subject = config.subject;
+          resolvedSub.options.filter_subject = config.subject;
         }
       }
 
-      await this.mq.engine.provisionStream(resolvedSub);
-      const handler = (target as any)[sub.methodName];
-      await this.mq.engine.createPullConsumer(resolvedSub, resolvedSub.concurrencies, handler.bind(target));
+      tasks.push({ meta: resolvedSub, handler });
     }
 
-    // 3. Setup Cron Jobs
-    const cronsList = Array.from(combinedMeta.crons.values());
-    for (const cron of cronsList) {
-      const handler = (target as any)[cron.methodName];
-      this.mq.cron.schedule(cron, handler.bind(target));
+    // 4. Process Crons
+    for (const cron of Array.from(combinedMeta.crons.values())) {
+      const handler = instance[cron.methodName].bind(instance);
+      crons.push({ meta: cron, handler });
     }
+
+    return { tasks, crons };
+  }
+
+  /**
+   * Compatibility alias for register.
+   */
+  public async registerInstance(instance: any): Promise<void> {
+    await this.register(instance);
   }
 
   public async close() {

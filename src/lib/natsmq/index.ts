@@ -38,6 +38,8 @@ import { LocalConcurrencyStore } from "./store/local-store";
 import { JsMsg, RetentionPolicy, StorageType } from "nats";
 import { getNatsMQMeta } from "./meta";
 import { NatsMQService } from "./service";
+import { container } from "tsyringe";
+import { SubscriptionTask } from "./types";
 
 export class NatsMQ {
   public engine: NatsMQEngine;
@@ -74,27 +76,48 @@ export class NatsMQ {
 
     await service.onInit();
 
-    // 1. Provision global queues
+    const allTasks: SubscriptionTask[] = [];
+
+    // 1. Collect global queue tasks
     if (queues.length > 0) {
       for (const queue of queues) {
         const config = queue.getNatsConfig();
-        await service.mq!.engine.provisionStream({
-          subject: config.subject,
-          options: config.options,
-          key: `app:global`,
-          methodName: "global",
-          className: "App",
-          schema: config.schema,
-          isRequest: false,
-          concurrencies: []
+        allTasks.push({
+          meta: {
+            subject: config.subject,
+            options: config.options,
+            key: `app:global:${config.subject}`,
+            methodName: "global",
+            className: "App",
+            schema: config.schema,
+            isRequest: false,
+            concurrencies: []
+          }
         });
       }
     }
 
-    // 2. Register all workers
+    // 2. Register all workers and collect their tasks
+    const instances = [];
     if (workers.length > 0) {
-      await service.register(...workers);
+      for (const workerClass of workers) {
+        const instance = container.resolve(workerClass);
+        instances.push(instance);
+        const { tasks, crons } = await service.collectWorkerMetadata(instance);
+        allTasks.push(...tasks);
+        
+        // Schedule crons immediately as they are local to the process
+        for (const { meta, handler } of crons) {
+          service.mq!.cron.schedule(meta, handler);
+        }
+      }
     }
+
+    // 3. Batch Provision Infrastructure
+    await service.mq!.engine.provisionInfrastructure(allTasks);
+
+    // 4. Activate Consumers
+    await service.mq!.engine.activateConsumers(allTasks);
 
     return service.mq!;
   }

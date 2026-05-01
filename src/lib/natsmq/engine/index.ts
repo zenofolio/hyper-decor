@@ -5,7 +5,9 @@ import {
   NatsMQMetrics,
   NatsSubscriptionMeta,
   NatsConcurrencyMeta,
-  INatsProvider
+  INatsProvider,
+  SubscriptionTask,
+  NatsSubscriptionOptions
 } from "../types";
 import { LocalConcurrencyStore } from "../store/local-store";
 import { z } from "zod";
@@ -135,36 +137,109 @@ export class NatsMQEngine {
   }
 
   async provisionStream(meta: NatsSubscriptionMeta): Promise<void> {
+    await this.provisionStreamInternal(meta.options.stream!, [meta.subject], meta.options);
+  }
+
+  /**
+   * Provisions all necessary infrastructure (streams and durable consumers) for a list of tasks.
+   * This is optimized to batch subjects by stream to avoid NATS collision errors.
+   */
+  async provisionInfrastructure(tasks: SubscriptionTask[]): Promise<void> {
+    const streams = new Map<string, { subjects: Set<string>, options: NatsSubscriptionOptions }>();
+
+    for (const task of tasks) {
+      const streamName = task.meta.options.stream || "DEFAULT_STREAM";
+      if (!streams.has(streamName)) {
+        streams.set(streamName, { subjects: new Set(), options: task.meta.options });
+      }
+      streams.get(streamName)!.subjects.add(task.meta.subject);
+    }
+
+    // 1. Provision Streams (one update/add per stream)
+    for (const [streamName, data] of streams.entries()) {
+      await this.provisionStreamInternal(streamName, Array.from(data.subjects), data.options);
+    }
+
+    // 2. Pre-provision durable consumers (Standby mode)
+    for (const task of tasks) {
+      if (task.meta.options.durable_name) {
+        await this.provisionConsumer(task.meta);
+      }
+    }
+  }
+
+  /**
+   * Activates the pull consumers for the given tasks.
+   */
+  async activateConsumers(tasks: SubscriptionTask[]): Promise<void> {
+    for (const task of tasks) {
+      if (task.handler) {
+        await this.createPullConsumer(task.meta, task.meta.concurrencies, task.handler);
+      }
+    }
+  }
+
+  private async provisionStreamInternal(stream: string, subjects: string[], options: NatsSubscriptionOptions): Promise<void> {
     if (!this.jsm) throw new Error("Engine not started");
-    const streamName = meta.options.stream;
-    if (!streamName) return;
 
     try {
-      const info = await this.jsm.streams.info(streamName);
+      const info = await this.jsm.streams.info(stream);
       const currentSubjects = info.config.subjects || [];
 
-      const { updated, merged } = this.mergeSubjects(currentSubjects, meta.subject);
+      let mergedSubjects = [...currentSubjects];
+      let updated = false;
+      for (const s of subjects) {
+        const result = this.mergeSubjects(mergedSubjects, s);
+        if (result.updated) {
+          mergedSubjects = result.merged;
+          updated = true;
+        }
+      }
 
       if (updated) {
-        await this.jsm.streams.update(streamName, {
+        await this.jsm.streams.update(stream, {
           ...info.config,
-          subjects: merged,
-          duplicate_window: meta.options.duplicate_window_ns || this.sec_to_ns(3600),
+          subjects: mergedSubjects,
+          duplicate_window: options.duplicate_window_ns || this.sec_to_ns(3600)
         });
       }
-    } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
-      if (message.includes("stream not found")) {
+    } catch (err: any) {
+      if (err.message?.includes("stream not found")) {
         await this.jsm.streams.add({
-          name: streamName,
-          subjects: [meta.subject],
-          retention: meta.options?.retention || RetentionPolicy.Limits,
-          storage: meta.options?.storage || StorageType.File,
-          duplicate_window: meta.options.duplicate_window_ns || this.sec_to_ns(3600),
+          name: stream,
+          subjects: subjects,
+          retention: options.retention || RetentionPolicy.Limits,
+          storage: options.storage || StorageType.File,
+          duplicate_window: options.duplicate_window_ns || this.sec_to_ns(3600)
         });
       } else {
         throw err;
       }
+    }
+  }
+
+  /**
+   * Internal helper to provision a durable consumer without starting consumption.
+   */
+  private async provisionConsumer(meta: NatsSubscriptionMeta): Promise<void> {
+    if (!this.jsm) throw new Error("Engine not started");
+    const stream = meta.options.stream;
+    if (!stream) return;
+
+    const durableName = meta.options.durable_name || `${meta.methodName}_consumer`;
+    const { stream: _stream, ...natsOptions } = meta.options;
+
+    try {
+      await this.jsm.consumers.info(stream, durableName);
+    } catch (err) {
+      const { AckPolicy } = await import("nats");
+      await this.jsm.consumers.add(stream, {
+        ...natsOptions,
+        filter_subject: meta.subject,
+        durable_name: durableName,
+        ack_policy: natsOptions.ack_policy || AckPolicy.Explicit,
+        max_deliver: natsOptions.max_deliver || 100
+      });
     }
   }
 
