@@ -60,7 +60,7 @@ describe("NatsMQ Engine (Decorator-based)", () => {
     const userSvc = new UserSvc();
     await service.registerInstance(userSvc);
 
-    await service.mq?.engine.publish(`users.${testSuffix}.created`, UserSchema, { name: "Bob" });
+    await service.mq?.engine.publish(`users.${testSuffix}.created`, { name: "Bob" });
 
     const start = Date.now();
     while (!userSvc.handled && Date.now() - start < 5000) {
@@ -101,13 +101,13 @@ describe("NatsMQ Engine (Decorator-based)", () => {
     const engine = service.mq?.engine;
     if (!engine) throw new Error("Engine not initialized");
 
-    await engine.publish(`jobs.${testSuffix}.sync.A`, JobSchema, { id: 1 });
+    await engine.publish(`jobs.${testSuffix}.sync.A`, { id: 1 });
     await delay(100);
-    await engine.publish(`jobs.${testSuffix}.sync.B`, JobSchema, { id: 2 });
+    await engine.publish(`jobs.${testSuffix}.sync.B`, { id: 2 });
     await delay(100);
-    await engine.publish(`jobs.${testSuffix}.sync.C`, JobSchema, { id: 3 });
+    await engine.publish(`jobs.${testSuffix}.sync.C`, { id: 3 });
     await delay(100);
-    await engine.publish(`jobs.${testSuffix}.sync.D`, JobSchema, { id: 4 });
+    await engine.publish(`jobs.${testSuffix}.sync.D`, { id: 4 });
     
     const start = Date.now();
     while (jobSvc.completed < 4 && Date.now() - start < 30000) {

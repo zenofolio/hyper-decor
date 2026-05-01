@@ -1,4 +1,4 @@
-import { connect, NatsConnection, JetStreamClient, JetStreamManager, StringCodec, JsMsg, JSONCodec, RetentionPolicy, Consumer, StorageType } from "nats";
+import { connect, NatsConnection, JetStreamClient, JetStreamManager, StringCodec, JsMsg, JSONCodec, RetentionPolicy, Consumer, StorageType, PublishOptions, PubAck } from "nats";
 import {
   NatsMQOptions,
   IConcurrencyStore,
@@ -149,6 +149,7 @@ export class NatsMQEngine {
         await this.jsm.streams.update(streamName, {
           ...info.config,
           subjects: merged,
+          duplicate_window: meta.options.duplicate_window_ns || this.sec_to_ns(3600),
         });
       }
     } catch (err) {
@@ -158,7 +159,8 @@ export class NatsMQEngine {
           name: streamName,
           subjects: [meta.subject],
           retention: meta.options?.retention || RetentionPolicy.Limits,
-          storage: meta.options?.storage || StorageType.File
+          storage: meta.options?.storage || StorageType.File,
+          duplicate_window: meta.options.duplicate_window_ns || this.sec_to_ns(3600),
         });
       } else {
         throw err;
@@ -370,26 +372,46 @@ export class NatsMQEngine {
     }
   }
 
-  async publish<T>(subjectOrContract: string | INatsProvider<T>, schemaOrData: z.ZodType<T> | T, maybeData?: T): Promise<void> {
+  /**
+   * Publishes a message to NATS JetStream.
+   * Supports both contracts and raw subjects, with optional NATS publish options (like msgId for idempotency).
+   */
+  async publish<T>(
+    target: string | INatsProvider<T>,
+    data: T,
+    options: PublishOptions & { subject?: string, idempotencyKey?: string } = {}
+  ): Promise<void> {
     if (!this.js || !this.running) throw new Error("Engine not started");
 
     let subject: string;
     let schema: z.ZodType<T>;
-    let data: T;
 
-    if (typeof subjectOrContract === "string") {
-      subject = subjectOrContract;
-      schema = schemaOrData as z.ZodType<T>;
-      data = maybeData as T;
+    if (typeof target === "string") {
+      subject = options.subject || target;
+      schema = (z.any() as any);
     } else {
-      const config = subjectOrContract.getNatsConfig();
-      subject = config.subject;
+      const config = target.getNatsConfig();
+      subject = options.subject || config.subject;
       schema = config.schema;
-      data = schemaOrData as T;
     }
 
     const payload = this.jc.encode(schema.parse(data));
-    await this.js.publish(subject, payload);
+    await this.js.publish(subject, payload, {
+      msgID: options?.idempotencyKey,
+    });
+  }
+
+  /**
+   * Publishes a batch of messages to NATS JetStream.
+   */
+  async publishBatch<T>(
+    target: string | INatsProvider<T>,
+    items: Array<{ data: T; options?: PublishOptions & { subject?: string, idempotencyKey?: string } }>
+  ): Promise<void> {
+    if (!this.js || !this.running) throw new Error("Engine not started");
+
+    const promises = items.map((item) => this.publish(target, item.data, item.options));
+    await Promise.all(promises);
   }
 
 
@@ -398,5 +420,11 @@ export class NatsMQEngine {
     const payload = this.jc.encode(reqSchema.parse(data));
     const msg = await this.nc.request(subject, payload);
     return resSchema.parse(this.jc.decode(msg.data));
+  }
+
+
+
+  private sec_to_ns(sec: number): number {
+    return Math.round(sec * 1_000_000_000);
   }
 }

@@ -86,7 +86,8 @@ export class NatsMessageContract<T, R = void> implements INatsProvider<T> {
    * If an object is provided, replaces ':key' tokens with values.
    * If strings are provided, replaces '*' or '>' tokens sequentially.
    */
-  fill(params: Record<string, string> | string, ...args: string[]): NatsMessageContract<T, R> {
+  fill(params?: Record<string, string> | string, ...args: string[]): NatsMessageContract<T, R> {
+    if (!params) return this;
     let newSubject = this.subject;
 
     if (typeof params === "object" && params !== null) {

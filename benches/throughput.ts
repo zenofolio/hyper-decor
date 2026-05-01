@@ -42,7 +42,7 @@ async function runThroughputBench() {
   const STREAM_NAME = "STR_THROUGHPUT_BENCH";
   await engine.deleteStream("STR_BENCH"); // Old name cleanup
   await engine.deleteStream(STREAM_NAME);
-  
+
   const mockMeta: NatsSubscriptionMeta = {
     key: "bench:throughput",
     methodName: "bench",
@@ -89,7 +89,7 @@ async function runThroughputBench() {
 
   const pubPromises = [];
   for (let i = 1; i <= totalMessages; i++) {
-    pubPromises.push(engine.publish("bench.throughput", JobSchema, {
+    pubPromises.push(engine.publish("bench.throughput", {
       id: i,
       isLast: i === totalMessages
     }));

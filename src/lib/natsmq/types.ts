@@ -14,6 +14,7 @@ export interface NatsSubscriptionOptions extends Partial<ConsumerConfig> {
   max_messages?: number;
   storage?: StorageType
   retention?: RetentionPolicy
+  duplicate_window_ns?: number
 }
 
 /**
@@ -40,6 +41,7 @@ export interface NatsSubscriptionMeta {
   responseSchema?: z.ZodTypeAny;
   options: NatsSubscriptionOptions;
   isRequest: boolean;
+  duplicateWindowNs?: number;
   concurrencies: NatsConcurrencyMeta[];
 }
 

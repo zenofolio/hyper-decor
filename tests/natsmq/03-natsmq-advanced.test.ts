@@ -55,7 +55,7 @@ describe("NatsMQ Advanced & Stress Tests", () => {
     const svc = new SlowSvc();
     await service.registerInstance(svc);
 
-    await service.mq?.engine.publish(`slow.${testSuffix}`, TaskSchema, { id: 1 });
+    await service.mq?.engine.publish(`slow.${testSuffix}`, { id: 1 });
 
     const start = Date.now();
     while (svc.processed < 1 && Date.now() - start < 5000) {
@@ -118,7 +118,10 @@ describe("NatsMQ Advanced & Stress Tests", () => {
 
     // Blast 20 messages
     for (let i = 0; i < 20; i++) {
-      await service.mq?.engine.publish(`stress.${testSuffix}`, TaskSchema, { id: i });
+      await service.mq?.engine.publish(`stress.${testSuffix}`, { id: i }, {
+        subject: `stress.${testSuffix}`,
+        idempotencyKey: `msg_${i}`,
+      });
     }
 
     const start = Date.now();
