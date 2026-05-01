@@ -135,3 +135,37 @@ const status = await mq.engine.request(GetOrder, { id: "ORD-123" });
 console.log(status.status); // "shipped"
 ```
 
+## 8. Real-time Monitoring & Metrics
+
+NatsMQ provides a unified API to monitor the state of your messaging system in real-time. This API aggregates data from multiple sources (Business Metrics, NATS JetStream, and Concurrency Store) into a single, semantic call.
+
+### Unified `count` API
+
+Instead of querying multiple providers, use the `mq.count()` method to get a complete snapshot of a specific contract or the entire system.
+
+```typescript
+const mq = NatsMQService.getInstance().mq;
+
+// Query multiple dimensions at once for a specific message contract
+const stats = await mq.count(['active', 'pending', 'unacked', 'success', 'error'], OrderCreated);
+
+console.log(`Currently processing: ${stats.active}`);
+console.log(`Waiting in NATS: ${stats.pending}`);
+console.log(`Total successes: ${stats.success}`);
+```
+
+### Monitored Dimensions
+
+| Metric | Source | Description |
+|--------|--------|-------------|
+| `received` | Business | Total number of messages that entered the handler. |
+| `success` | Business | Total number of messages successfully processed. |
+| `error` | Business | Total number of messages that failed in the handler. |
+| `active` | Store | Real-time count of workers currently executing the handler (In-flight). |
+| `pending` | NATS | Number of messages waiting in the NATS stream for this consumer. |
+| `unacked` | NATS | Number of messages delivered but not yet acknowledged (Ack-pending). |
+
+### Zero-Config Monitoring
+
+NatsMQ uses a **Contract-First Monitoring** approach. By default, it automatically resolves the internal NATS consumer names using standard conventions. This means `mq.count(OrderCreated)` works out-of-the-box without any manual name coordination.
+

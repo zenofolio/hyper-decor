@@ -92,7 +92,7 @@ await engine.publish(UserTasks.fill({ id: "123" }), data);
 - **📜 Contract-First Messaging**: Eliminate "string-based" events. Use Zod-powered contracts for total type safety.
 - **⚖️ Distributed Concurrency**: Enforce global execution limits via Redis backends with local retry/jitter to avoid NAK storms.
 - **⏰ Distributed Cron**: Ensure cron tasks run exactly once per cluster using temporal bucketing and TTL locks.
-- **📊 Real-time Metrics**: Built-in support for Redis-backed metrics for monitoring throughput and latency.
+- **📊 Unified Monitoring**: Real-time stats dashboard via `mq.count()` aggregating data from Business Metrics, NATS JetStream, and Concurrency Store.
 - **🛡️ OpenAPI / Swagger**: Automatic generation of Swagger specifications directly from your decorators.
 
 ---
