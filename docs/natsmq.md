@@ -55,7 +55,8 @@ If you prefer to avoid decorators or need dynamic subscriptions, you can use the
 const service = NatsMQService.getInstance();
 
 // Subscribe manually to a contract
-await service.mq.engine.createPullConsumer(
+const engine = service.getEngine();
+await engine.createPullConsumer(
   OrderCreated.getNatsConfig(), 
   [], // No concurrency limits
   async (data, msg) => {
@@ -63,6 +64,13 @@ await service.mq.engine.createPullConsumer(
     await msg.ack();
   }
 );
+```
+
+### Accessing the Engine
+You can access the `NatsMQEngine` from anywhere using the service:
+```typescript
+const engine = NatsMQService.getInstance().getEngine();
+await engine.publish(OrderCreated, { id: "ORD-123" });
 ```
 
 ## 4. Distributed Concurrency & Cron
@@ -79,11 +87,22 @@ Use `@OnCron` to ensure a task runs exactly once in the entire cluster at a spec
 @HyperService()
 class BackupService {
   @OnCron("Daily Backup", "0 0 * * *")
-  async run() {
+  async run(ctx: CronContext) {
     console.log("Running daily backup...");
+    // The engine is available directly in the cron context
+    await ctx.engine.publish(BackupStatus, { status: "running" });
   }
 }
 ```
+
+The `CronContext` provides:
+- `engine`: The `NatsMQEngine` instance.
+- `name`: The name of the cron task.
+- `scheduledTime`: When the task was supposed to run.
+- `actualTime`: When the task actually started.
+- `executionId`: A unique ID for this specific run.
+- `extendLock(ms)`: Extend the distributed lock if the task takes longer than expected.
+- `log(msg)`: Prefixed logging helper.
 
 ## 5. Advanced NATS Options (Inflight & Delivery)
 

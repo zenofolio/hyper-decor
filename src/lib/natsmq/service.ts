@@ -8,9 +8,11 @@ import {
   INatsProvider,
   SubscriptionTask,
   NatsCronMeta,
-  NatsMQWorkerOptions
+  NatsMQWorkerOptions,
+  CronContext
 } from "./types";
 import { getNatsMQMeta } from "./meta";
+import { NatsMQEngine } from "./engine";
 
 export class NatsMQService {
   private static instance: NatsMQService;
@@ -24,6 +26,10 @@ export class NatsMQService {
       NatsMQService.instance = new NatsMQService();
     }
     return NatsMQService.instance;
+  }
+
+  public static getEngine(): NatsMQEngine {
+    return this.getInstance().getEngine();
   }
 
   public configure(options: NatsMQOptions) {
@@ -190,5 +196,16 @@ export class NatsMQService {
    */
   async getPendingCount(contract: INatsProvider<any>): Promise<{ pending: number, unacked: number }> {
     return this.mq?.engine.getPendingCount(contract) || { pending: 0, unacked: 0 };
+  }
+
+  /**
+   * Gets the NatsMQ engine instance.
+   * Throws an error if the engine is not initialized.
+   */
+  public getEngine(): NatsMQEngine {
+    if (!this.mq || !this.mq.engine) {
+      throw new Error("NatsMQ Engine not initialized. Call configure() and onInit() first.");
+    }
+    return this.mq.engine;
   }
 }
