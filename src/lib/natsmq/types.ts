@@ -1,6 +1,7 @@
 import { z } from "zod";
 import type { ConsumerConfig, RetentionPolicy, StorageType } from "nats";
 import { ILock, ILockManager, LockOptions } from "../lock/lock";
+import { NatsMQEngine } from "./engine";
 
 // --- NATS Configuration & Provider ---
 
@@ -130,5 +131,6 @@ export interface CronContext {
   readonly executionId: string;
   extendLock(ms: number): Promise<void>;
   log(message: string): void;
+  readonly engine: NatsMQEngine
   readonly metrics: NatsMQMetrics;
 }

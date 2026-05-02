@@ -112,7 +112,7 @@ export class NatsMQ {
 
         // Schedule crons immediately as they are local to the process
         for (const { meta, handler } of crons) {
-          service.mq!.cron.schedule(meta, handler);
+          service.mq!.cron.schedule(meta, service.mq?.engine, handler);
         }
       }
     }

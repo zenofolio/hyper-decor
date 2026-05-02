@@ -70,7 +70,7 @@ export class NatsMQService {
 
     // 3. Setup Crons
     for (const { meta, handler } of allCrons) {
-      this.mq.cron.schedule(meta, handler);
+      this.mq.cron.schedule(meta, this.mq?.engine, handler);
     }
 
     return instances;

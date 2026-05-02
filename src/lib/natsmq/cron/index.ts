@@ -1,6 +1,6 @@
 import { Cron } from "croner";
 import { NatsCronMeta, IConcurrencyStore, NatsMQMetrics, CronContext } from "../types";
-import { ILock } from "../../lock/lock";
+import { NatsMQEngine } from "../engine";
 
 export class CronScheduler {
   private jobs = new Map<string, any>();
@@ -8,15 +8,15 @@ export class CronScheduler {
   constructor(
     private store: IConcurrencyStore,
     private metrics?: NatsMQMetrics
-  ) {}
+  ) { }
 
-  schedule(meta: NatsCronMeta, handler: (ctx: CronContext) => Promise<void>) {
+  schedule(meta: NatsCronMeta, engine: NatsMQEngine | undefined, handler: (ctx: CronContext) => Promise<void>) {
     const job = new Cron(meta.schedule, { timezone: meta.options?.tz }, async (self) => {
       // Logic for cron execution with metrics and locking
       const lockTtl = meta.options?.lockTtlMs || 60000;
       const start = Date.now();
       const executionId = Math.random().toString(36).substring(7);
-      
+
       // Use the current run time from croner for the lock bucket
       const scheduledTime = self.currentRun() || new Date();
       const timeBucket = Math.floor(scheduledTime.getTime() / 1000);
@@ -38,11 +38,17 @@ export class CronScheduler {
                 lock = await this.store.extend(lock, ms);
               }
             },
-            log: (msg: string) => console.log(`[Cron:${meta.name}] ${msg}`)
+            log: (msg: string) => console.log(`[Cron:${meta.name}] ${msg}`),
+            get engine() {
+              if (!engine) {
+                throw new Error("Engine not initialized");
+              }
+              return engine;
+            }
           };
 
           await handler(context);
-          
+
           if (this.metrics) {
             this.metrics.recordProcessingSuccess(`cron:${meta.name}`, Date.now() - start);
           }
