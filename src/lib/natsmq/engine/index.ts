@@ -1,4 +1,4 @@
-import { connect, NatsConnection, JetStreamClient, JetStreamManager, StringCodec, JsMsg, JSONCodec, RetentionPolicy, Consumer, StorageType, PublishOptions, PubAck } from "nats";
+import { connect, NatsConnection, JetStreamClient, JetStreamManager, StringCodec, JsMsg, JSONCodec, RetentionPolicy, Consumer, StorageType, PublishOptions, PubAck, AckPolicy } from "nats";
 import {
   NatsMQOptions,
   IConcurrencyStore,
@@ -12,6 +12,7 @@ import {
 import { LocalConcurrencyStore } from "../store/local-store";
 import { z } from "zod";
 import { ILock } from "../../lock/lock";
+import type { ConsumerConfig } from "nats";
 
 const delay = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
 
@@ -41,7 +42,7 @@ export class NatsMQEngine {
   /**
    * Retrieves the current number of active concurrent handlers for a subject.
    */
-  public async getActiveCount(subject?: string | INatsProvider<any>): Promise<number> {
+  public async getActiveCount(subject?: string | INatsProvider<unknown>): Promise<number> {
     if (!subject) return this.store.getGlobalActiveCount();
 
     const pattern = typeof subject === "string"
@@ -61,28 +62,28 @@ export class NatsMQEngine {
   /**
    * Gets a specific metric counter from the provider.
    */
-  public async getCounter(type: 'received' | 'success' | 'error', subject?: string | INatsProvider<any>): Promise<number> {
+  public async getCounter(type: 'received' | 'success' | 'error', subject?: string | INatsProvider<unknown>): Promise<number> {
     return this.options.metrics?.getCounter(type, subject) || 0;
   }
 
   /**
    * Gets the average latency for a subject or provider.
    */
-  public async getAverageLatency(subject?: string | INatsProvider<any>): Promise<number> {
+  public async getAverageLatency(subject?: string | INatsProvider<unknown>): Promise<number> {
     return this.options.metrics?.getAverageLatency(subject || "") || 0;
   }
 
   /**
    * Retrieves the number of pending and unacknowledged messages for a specific contract.
    */
-  public async getPendingCount(contract: INatsProvider<any>): Promise<{ pending: number, unacked: number }> {
+  public async getPendingCount(contract: INatsProvider<unknown>): Promise<{ pending: number, unacked: number }> {
     if (!this.jsm || !this.running) return { pending: 0, unacked: 0 };
     const config = contract.getNatsConfig();
     const stream = config.options.stream;
     if (!stream) return { pending: 0, unacked: 0 };
-    
+
     const durableName = this.getEffectiveDurableName(config.subject, config.options);
-    
+
     try {
       const info = await this.jsm.consumers.info(stream, durableName);
       return {
@@ -229,18 +230,17 @@ export class NatsMQEngine {
     if (!stream) return;
 
     const durableName = this.getEffectiveDurableName(meta.subject, meta.options);
-    const { stream: _stream, ...natsOptions } = meta.options;
 
     try {
       await this.jsm.consumers.info(stream, durableName);
     } catch (err) {
-      const { AckPolicy } = await import("nats");
+      const config = this.sanitizeConsumerConfig(meta.options);
       await this.jsm.consumers.add(stream, {
-        ...natsOptions,
+        ...config,
         filter_subject: meta.subject,
         durable_name: durableName,
-        ack_policy: natsOptions.ack_policy || AckPolicy.Explicit,
-        max_deliver: natsOptions.max_deliver || 100
+        ack_policy: config.ack_policy || AckPolicy.Explicit,
+        max_deliver: config.max_deliver || 100
       });
     }
   }
@@ -275,17 +275,16 @@ export class NatsMQEngine {
     if (!stream) throw new Error("Stream required for Pull Consumers");
 
     const durableName = this.getEffectiveDurableName(meta.subject, meta.options);
-    const { stream: _stream, max_messages: _maxMsgs, ...natsOptions } = meta.options;
 
     try {
       await this.jsm?.consumers.info(stream, durableName);
     } catch (err) {
-      const { AckPolicy } = await import("nats");
+      const config = this.sanitizeConsumerConfig(meta.options);
       await this.jsm?.consumers.add(stream, {
-        ...natsOptions,
+        ...config,
         durable_name: durableName,
-        ack_policy: natsOptions.ack_policy || AckPolicy.Explicit,
-        max_deliver: natsOptions.max_deliver || 100
+        ack_policy: config.ack_policy || AckPolicy.Explicit,
+        max_deliver: config.max_deliver || 100
       });
     }
 
@@ -293,7 +292,7 @@ export class NatsMQEngine {
     this.consumers.set(meta.subject, { consumer, meta });
 
     // Synchronization: Pull batch size and local inflight
-    const maxAckPending = natsOptions.max_ack_pending || 1000;
+    const maxAckPending = meta.options.max_ack_pending || 1000;
     const pullBatch = meta.options.max_messages || Math.min(50, maxAckPending);
 
     const messages = await consumer.consume({
@@ -511,5 +510,51 @@ export class NatsMQEngine {
     if (options.durable_name) return options.durable_name;
     // Default convention: cons_ + subject (sanitized)
     return `cons_${subject.replace(/[^a-zA-Z0-9]/g, '_')}`;
+  }
+
+  /**
+   * Filters NatsSubscriptionOptions to return only valid ConsumerConfig fields.
+   */
+  private sanitizeConsumerConfig(options: NatsSubscriptionOptions): Partial<ConsumerConfig> {
+    const validKeys: (keyof ConsumerConfig)[] = [
+      "ack_policy",
+      "deliver_policy",
+      "deliver_group",
+      "durable_name",
+      "name",
+      "flow_control",
+      "idle_heartbeat",
+      "opt_start_seq",
+      "opt_start_time",
+      "rate_limit_bps",
+      "replay_policy",
+      "pause_until",
+      "description",
+      "ack_wait",
+      "max_deliver",
+      "sample_freq",
+      "max_ack_pending",
+      "max_waiting",
+      "headers_only",
+      "deliver_subject",
+      "max_batch",
+      "max_expires",
+      "inactive_threshold",
+      "backoff",
+      "max_bytes",
+      "num_replicas",
+      "mem_storage",
+      "filter_subject",
+      "filter_subjects",
+      "metadata"
+    ];
+
+    const config: Partial<ConsumerConfig> = {};
+    for (const key of validKeys) {
+      if (options[key as keyof NatsSubscriptionOptions] !== undefined) {
+        (config as any)[key] = options[key as keyof NatsSubscriptionOptions];
+      }
+    }
+    return config;
   }
 }

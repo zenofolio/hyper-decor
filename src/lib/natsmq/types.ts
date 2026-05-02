@@ -1,5 +1,5 @@
 import { z } from "zod";
-import type { ConsumerConfig, RetentionPolicy, StorageType } from "nats";
+import type { ConsumerConfig, RetentionPolicy, StorageType, JsMsg } from "nats";
 import { ILock, ILockManager, LockOptions } from "../lock/lock";
 import { NatsMQEngine } from "./engine";
 
@@ -22,7 +22,7 @@ export interface NatsSubscriptionOptions extends Partial<ConsumerConfig> {
  * Interface that allows a class to provide NATS configuration.
  * Can be implemented by individual messages or entire queue factories.
  */
-export interface INatsProvider<T = any> {
+export interface INatsProvider<T = unknown> {
   getNatsConfig(): {
     subject: string;
     schema: z.ZodType<T>;
@@ -68,7 +68,7 @@ export interface NatsCronMeta {
 
 export interface SubscriptionTask {
   meta: NatsSubscriptionMeta;
-  handler?: (data: any, msg: any) => Promise<void>;
+  handler?: (data: unknown, msg: JsMsg) => Promise<void>;
 }
 
 export interface NatsMQWorkerOptions {
@@ -77,7 +77,7 @@ export interface NatsMQWorkerOptions {
 
 export interface NatsMQAppOptions {
   servers?: string | string[];
-  workers?: Array<new (...args: any[]) => any>;
+  workers?: Array<new (...args: any[]) => unknown>;
   queues?: INatsProvider<unknown>[];
   metrics?: INatsMetrics;
   concurrencyStore?: IConcurrencyStore;
@@ -109,8 +109,8 @@ export interface INatsMetrics {
   recordCronError(name: string, error: string): void | Promise<void>;
   increment(name: string, value?: number, labels?: Record<string, string>): void | Promise<void>;
   gauge(name: string, value: number, labels?: Record<string, string>): void | Promise<void>;
-  getCounter(type: 'received' | 'success' | 'error', subject?: string | INatsProvider<any>): Promise<number>;
-  getAverageLatency(subject: string | INatsProvider<any>): Promise<number>;
+  getCounter(type: 'received' | 'success' | 'error', subject?: string | INatsProvider<unknown>): Promise<number>;
+  getAverageLatency(subject: string | INatsProvider<unknown>): Promise<number>;
 }
 
 export type NatsMQMetrics = INatsMetrics;

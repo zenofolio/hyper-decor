@@ -35,13 +35,13 @@ export { RedisMetrics, DefaultNatsMQMetrics } from "./metrics";
 import { NatsMQEngine } from "./engine";
 import { CronScheduler } from "./cron";
 import { DefaultNatsMQMetrics } from "./metrics";
-import { NatsMQOptions, NatsMQMetrics, INatsProvider } from "./types";
+import { NatsMQOptions, NatsMQMetrics, INatsProvider, NatsConcurrencyMeta } from "./types";
 import { LocalConcurrencyStore } from "./store/local-store";
 import { JsMsg, RetentionPolicy, StorageType } from "nats";
 import { getNatsMQMeta } from "./meta";
 import { NatsMQService } from "./service";
 import { container } from "tsyringe";
-import { SubscriptionTask } from "./types";
+import { SubscriptionTask, NatsSubscriptionMeta } from "./types";
 
 export class NatsMQ {
   public engine: NatsMQEngine;
@@ -60,7 +60,7 @@ export class NatsMQ {
   /**
    * Bootstraps a NatsMQ application using the @NatsMQApp decorator.
    */
-  public static async bootstrap(appClass: any): Promise<NatsMQ> {
+  public static async bootstrap(appClass: new (...args: any[]) => any): Promise<NatsMQ> {
     const meta = getNatsMQMeta(appClass);
     if (!meta.appConfig) {
       throw new Error(`Class ${appClass.name} is not a valid @NatsMQApp`);
@@ -139,8 +139,8 @@ export class NatsMQ {
    * Programmatically subscribe to a NATS subject or contract without decorators.
    */
   async subscribe<T>(
-    subjectOrProvider: any,
-    handler: (data: T, msg: JsMsg) => Promise<any>,
+    subjectOrProvider: string | INatsProvider<T>,
+    handler: (data: T, msg: JsMsg) => Promise<unknown>,
     options: {
       schema?: z.ZodType<T>,
       concurrency?: number,
@@ -158,7 +158,7 @@ export class NatsMQ {
       subject = subjectOrProvider;
       schema = options.schema || (z.any() as any);
     } else {
-      const config = (subjectOrProvider as any).getNatsConfig();
+      const config = subjectOrProvider.getNatsConfig();
       subject = config.subject;
       schema = config.schema;
       finalOptions = {
@@ -170,12 +170,12 @@ export class NatsMQ {
       };
     }
 
-    const concurrencies: any[] = [];
+    const concurrencies: NatsConcurrencyMeta[] = [];
     if (options.concurrency) {
       concurrencies.push({ pattern: subject, limit: options.concurrency });
     }
 
-    const meta: any = {
+    const meta: NatsSubscriptionMeta = {
       key: `prog:${subject}`,
       methodName: "handler",
       className: "Programmatic",
@@ -206,17 +206,17 @@ export class NatsMQ {
    */
   async count(
     types: Array<'active' | 'pending' | 'unacked' | 'received' | 'success' | 'error'>,
-    target?: string | INatsProvider<any>
+    target?: string | INatsProvider<unknown>
   ): Promise<Record<string, number>> {
     const results: Record<string, number> = {};
     const pendingStatsTypes = ['pending', 'unacked'];
     const metricsTypes = ['received', 'success', 'error'];
 
     // 1. Fetch from Metrics Provider
-    const activeMetricsTypes = types.filter(t => metricsTypes.includes(t)) as any[];
+    const activeMetricsTypes = types.filter(t => metricsTypes.includes(t));
     if (activeMetricsTypes.length > 0) {
       for (const type of activeMetricsTypes) {
-        results[type] = await this.metrics.getCounter(type, target);
+        results[type] = await this.metrics.getCounter(type as 'received' | 'success' | 'error', target);
       }
     }
 
@@ -245,7 +245,7 @@ export class NatsMQ {
   /**
    * Gets the average latency for a subject, contract or queue.
    */
-  async getAverageLatency(target: string | INatsProvider<any>): Promise<number> {
+  async getAverageLatency(target: string | INatsProvider<unknown>): Promise<number> {
     return this.metrics.getAverageLatency(target);
   }
 }
