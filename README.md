@@ -97,7 +97,7 @@ await engine.publish(UserTasks.fill({ id: "123" }), data);
 
 ---
 
-## 🛠️ Recent Improvements (v2.9.1)
+## 🛠️ Recent Improvements (v2.9.2)
 
 - **Resilient Bootstrap**: Services with failed `onInit` are no longer permanently marked as initialized, allowing for graceful recovery and retries.
 - **Race Condition Protection**: Implemented a global single-flight initialization cache to prevent duplicate service setup during concurrent bootstrap cycles.
