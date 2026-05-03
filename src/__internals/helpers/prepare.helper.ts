@@ -202,13 +202,12 @@ function ensureResolvable(ctx: BootstrapContext, target: Constructor): void {
   if (ctx.resolvableCache.has(target)) return;
 
   if (!container.isRegistered(target)) {
-    const meta = HyperMeta.get(target);
-    const type = meta?.type;
-
-    if (type === "service" || type === "controller") {
+    injectable()(target);
+    const meta = HyperMeta.get(target) as any;
+    if (meta?.type === "service" || meta?.type === "controller") {
       container.registerSingleton(target);
     } else {
-      container.register(target, target);
+      container.register(target, { useClass: target });
     }
   }
 
