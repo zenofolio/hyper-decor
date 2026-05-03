@@ -20,10 +20,20 @@ export class NatsMQService {
   public mq?: NatsMQ;
   private options?: NatsMQOptions;
 
-  public constructor() { }
+  private static _instance?: NatsMQService;
+
+  public constructor() {
+    if (NatsMQService._instance) {
+      return NatsMQService._instance;
+    }
+    NatsMQService._instance = this;
+  }
 
   public static getInstance(): NatsMQService {
-    return container.resolve(NatsMQService);
+    if (!this._instance) {
+      this._instance = new NatsMQService();
+    }
+    return this._instance;
   }
 
   public static getEngine(): NatsMQEngine {
