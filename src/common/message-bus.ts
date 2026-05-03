@@ -3,7 +3,6 @@ import { IMessageTransport, Transport, IMessageEnvelope, IMessageEmitOptions, IM
 import { randomUUID } from "crypto";
 
 @singleton()
-@injectable()
 export class MessageBus {
   private transports: IMessageTransport[] = [];
   private interceptor?: IMessageInterceptor;
@@ -13,6 +12,7 @@ export class MessageBus {
   }
 
   registerTransport(transport: IMessageTransport) {
+    if (this.transports.some((t) => t.name === transport.name)) return;
     this.transports.push(transport);
   }
 

@@ -7,7 +7,7 @@ import {
 } from "hyper-express";
 import { container, injectable } from "tsyringe";
 
-import { ScopeStore } from "../stores";
+import { ScopeStore, HyperMeta } from "../stores";
 import { Metadata } from "../stores/meta.store";
 import roleTransform from "../transform/role.transform";
 import scopeTransfrom from "../transform/scope.transfrom";
@@ -15,6 +15,7 @@ import middlewareTransformer from "../transform/middleware.transform";
 import { join } from "../utils/path.util";
 import { transformRegistry } from "../transform/transform.registry";
 
+import { ILogger, InternalLogger, LOGGER_TOKEN } from "../../common/logger";
 import { MessageBus } from "../../common/message-bus";
 import { InternalTransport, IMessageTransport, IMessageInterceptor } from "../../common/transport";
 import { IIdempotencyStore, InMemoryIdempotencyStore } from "../../common/idempotency";
@@ -201,8 +202,14 @@ function ensureResolvable(ctx: BootstrapContext, target: Constructor): void {
   if (ctx.resolvableCache.has(target)) return;
 
   if (!container.isRegistered(target)) {
-    injectable()(target);
-    container.register(target, target);
+    const meta = HyperMeta.get(target);
+    const type = meta?.type;
+
+    if (type === "service" || type === "controller") {
+      container.registerSingleton(target);
+    } else {
+      container.register(target, target);
+    }
   }
 
   ctx.resolvableCache.add(target);
@@ -733,6 +740,14 @@ export async function prepareApplication(
   Target: Constructor,
   log: (space: keyof LogSpaces, message: string) => void
 ): Promise<{ server: Server; instance: object }> {
+  // 1. Ensure essential services are registered (resilient to container.reset())
+  if (!container.isRegistered(LOGGER_TOKEN)) {
+    container.register(LOGGER_TOKEN, { useClass: InternalLogger });
+  }
+  if (!container.isRegistered(MessageBus)) {
+    container.registerSingleton(MessageBus);
+  }
+
   const ctx = new BootstrapContext();
 
   const appServer = new Server(options.uwsOptions || options.options);

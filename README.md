@@ -97,12 +97,12 @@ await engine.publish(UserTasks.fill({ id: "123" }), data);
 
 ---
 
-## 🛠️ Recent Improvements (v2.9.2)
+## 🛠️ Recent Improvements (v2.9.3)
 
-- **Resilient Bootstrap**: Services with failed `onInit` are no longer permanently marked as initialized, allowing for graceful recovery and retries.
-- **Race Condition Protection**: Implemented a global single-flight initialization cache to prevent duplicate service setup during concurrent bootstrap cycles.
-- **Handler Integrity**: Fixed a bug where `@OnMessage` handlers could be registered multiple times in nested module architectures.
-- **DI Optimization**: Reduced container overhead by eliminating redundant resolutions during application startup.
+- **🧩 DI Stability**: Hardened `prepareApplication` and `ensureResolvable` to properly handle `container.reset()` in test environments, ensuring singletons are correctly re-registered.
+- **📡 Messaging Precision**: Fixed Trie-based wildcard matching logic in `InternalTransport` to strictly adhere to segment levels (e.g., `user.*` no longer matches `user.a.b`).
+- **🛡️ MessageBus Idempotency**: `registerTransport` is now idempotent, preventing duplicate messaging pipelines during multiple re-bootstraps.
+- **🧪 Test Isolation**: Added best practices for DI-based testing using `afterEach(() => container.reset())`.
 
 ---
 

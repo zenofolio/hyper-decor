@@ -1,4 +1,4 @@
-import { inject, injectable } from "tsyringe";
+import { inject, injectable, singleton } from "tsyringe";
 import { ILogger, InternalLogger, LOGGER_TOKEN } from "./logger";
 import z from "zod";
 
@@ -79,7 +79,7 @@ interface ITrieNode {
   handlers: Handler[];
 }
 
-@injectable()
+@singleton()
 export class InternalTransport implements IMessageTransport {
   readonly name = Transport.INTERNAL;
   private logger: ILogger;
@@ -260,10 +260,6 @@ export class InternalTransport implements IMessageTransport {
 
       if (node.star) {
         this.recursiveSearch(node.star, topic, end + 1, results);
-      }
-
-      if (end === len) {
-        if (node.handlers.length > 0) results.push(...node.handlers);
       }
     }
   }
