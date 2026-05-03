@@ -2,6 +2,9 @@ import { z } from "zod";
 import type { ConsumerConfig, RetentionPolicy, StorageType, JsMsg } from "nats";
 import { ILock, ILockManager, LockOptions } from "../lock/lock";
 import { NatsMQEngine } from "./engine";
+import { IMessageContract } from "../../common/transport";
+
+export { IMessageContract };
 
 // --- NATS Configuration & Provider ---
 

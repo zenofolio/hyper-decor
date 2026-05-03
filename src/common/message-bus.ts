@@ -1,5 +1,5 @@
 import { container, singleton, injectable } from "tsyringe";
-import { IMessageTransport, Transport, IMessageEnvelope, IMessageEmitOptions, IMessageInterceptor, IMessageOptions } from "./transport";
+import { IMessageTransport, Transport, IMessageEnvelope, IMessageEmitOptions, IMessageInterceptor, IMessageOptions, IMessageContract } from "./transport";
 import { randomUUID } from "crypto";
 
 @singleton()
@@ -16,23 +16,35 @@ export class MessageBus {
     this.transports.push(transport);
   }
 
-  async emit(topic: string, data: any, options?: IMessageEmitOptions): Promise<void> {
+  async emit<T = any>(topicOrContract: string | IMessageContract<T>, data: T, options?: IMessageEmitOptions): Promise<void> {
+    let topic: string;
+    let payload = data;
+    let mergedOptions = { ...options };
+
+    if (typeof topicOrContract === "string") {
+      topic = topicOrContract;
+    } else {
+      const def = topicOrContract.getDefinition();
+      topic = def.topic;
+      payload = def.schema.parse(data);
+    }
+
     const envelope: IMessageEnvelope = {
       i: randomUUID(),
-      c: options?.correlationId,
+      c: mergedOptions.correlationId,
       t: Date.now(),
-      m: data
+      m: payload
     };
 
-    const targets = options?.transport
-      ? this.transports.filter((t) => t.name === options.transport)
+    const targets = mergedOptions.transport
+      ? this.transports.filter((t) => t.name === mergedOptions.transport)
       : this.transports;
 
     if (this.interceptor?.onEmit) {
-      await this.interceptor.onEmit(topic, envelope, options || {});
+      await this.interceptor.onEmit(topic, envelope, mergedOptions);
     }
 
-    await Promise.all(targets.map((t) => t.emit(topic, envelope, options)));
+    await Promise.all(targets.map((t) => t.emit(topic, envelope, mergedOptions)));
   }
 
   /**
@@ -42,16 +54,26 @@ export class MessageBus {
     await this.emit(topic, data, { ...options, transport: Transport.INTERNAL });
   }
 
-  async listen(
-    topic: string,
-    handler: (data: any, envelope?: IMessageEnvelope) => Promise<void> | void,
+  async listen<T = any>(
+    topicOrContract: string | IMessageContract<T>,
+    handler: (data: T, envelope?: IMessageEnvelope) => Promise<void> | void,
     options?: IMessageOptions
   ): Promise<void> {
-    const targets = options?.transport
-      ? this.transports.filter((t) => t.name === options.transport)
+    let topic: string;
+    let subOptions: IMessageOptions = { ...options };
+
+    if (typeof topicOrContract === "string") {
+      topic = topicOrContract;
+    } else {
+      const def = topicOrContract.getDefinition();
+      topic = def.topic;
+      subOptions = { ...def.config, ...subOptions };
+    }
+
+    const targets = subOptions.transport
+      ? this.transports.filter((t) => t.name === subOptions.transport)
       : this.transports;
 
-    const subOptions: IMessageOptions = { ...options };
     if (!subOptions.subscriptionId) {
       subOptions.subscriptionId = randomUUID();
     }

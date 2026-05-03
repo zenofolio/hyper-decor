@@ -35,7 +35,7 @@ export { RedisMetrics, DefaultNatsMQMetrics } from "./metrics";
 import { NatsMQEngine } from "./engine";
 import { CronScheduler } from "./cron";
 import { DefaultNatsMQMetrics } from "./metrics";
-import { NatsMQOptions, NatsMQMetrics, INatsProvider, NatsConcurrencyMeta } from "./types";
+import { NatsMQOptions, NatsMQMetrics, INatsProvider, NatsConcurrencyMeta, IMessageContract } from "./types";
 import { LocalConcurrencyStore } from "./store/local-store";
 import { JsMsg, RetentionPolicy, StorageType } from "nats";
 import { getNatsMQMeta } from "./meta";
@@ -69,14 +69,11 @@ export class NatsMQ {
     const { servers, workers = [], queues = [], metrics, concurrencyStore } = meta.appConfig;
     const service = NatsMQService.getInstance();
 
-    // Configure if not already configured
-    if (!service.mq) {
-      service.configure({
-        servers: servers || "nats://localhost:4222",
-        metrics,
-        concurrencyStore
-      });
-    }
+    service.configure({
+      servers: servers || "nats://localhost:4222",
+      metrics,
+      concurrencyStore
+    });
 
     await service.onInit();
 
@@ -139,7 +136,7 @@ export class NatsMQ {
    * Programmatically subscribe to a NATS subject or contract without decorators.
    */
   async subscribe<T>(
-    subjectOrProvider: string | INatsProvider<T>,
+    subjectOrProvider: string | INatsProvider<T> | IMessageContract<T>,
     handler: (data: T, msg: JsMsg) => Promise<unknown>,
     options: {
       schema?: z.ZodType<T>,
@@ -157,8 +154,19 @@ export class NatsMQ {
     if (typeof subjectOrProvider === "string") {
       subject = subjectOrProvider;
       schema = options.schema || (z.any() as any);
+    } else if ("getDefinition" in subjectOrProvider) {
+      const def = (subjectOrProvider as IMessageContract<T>).getDefinition();
+      subject = def.topic;
+      schema = def.schema;
+      finalOptions = {
+        stream: def.config?.stream,
+        durable: def.config?.durable_name,
+        storage: def.config?.storage,
+        retention: def.config?.retention,
+        ...options
+      };
     } else {
-      const config = subjectOrProvider.getNatsConfig();
+      const config = (subjectOrProvider as INatsProvider<T>).getNatsConfig();
       subject = config.subject;
       schema = config.schema;
       finalOptions = {

@@ -8,7 +8,8 @@ import {
   INatsProvider,
   CronOptions,
   NatsMQMetadata,
-  NatsMQAppOptions
+  NatsMQAppOptions,
+  IMessageContract
 } from "../types";
 import { getNatsMQMeta } from "../meta";
 
@@ -44,7 +45,7 @@ export function NatsMQApp(options: NatsMQAppOptions): ClassDecorator {
  * Decorator to subscribe a method to a NATS subject or contract.
  */
 export function OnNatsMessage(
-  subjectOrAction: string | INatsProvider<unknown>,
+  subjectOrAction: string | INatsProvider<unknown> | IMessageContract<unknown>,
   schemaOrOptions?: z.ZodType<unknown> | NatsSubscriptionOptions,
   maybeOptions?: NatsSubscriptionOptions
 ): any {
@@ -82,8 +83,15 @@ export function OnNatsMessage(
       subject = subjectOrAction;
       schema = (schemaOrOptions instanceof z.ZodType) ? schemaOrOptions : z.any();
       options = (!(schemaOrOptions instanceof z.ZodType) ? schemaOrOptions : maybeOptions) || {};
+    } else if ("getDefinition" in subjectOrAction) {
+      // It's an IMessageContract
+      const def = (subjectOrAction as IMessageContract<unknown>).getDefinition();
+      subject = def.topic;
+      schema = def.schema;
+      options = { ...def.config, ...(schemaOrOptions as NatsSubscriptionOptions) };
     } else {
-      const config = subjectOrAction.getNatsConfig();
+      // It's an INatsProvider (legacy)
+      const config = (subjectOrAction as INatsProvider<unknown>).getNatsConfig();
       subject = config.subject;
       schema = config.schema;
       options = { ...config.options, ...(schemaOrOptions as NatsSubscriptionOptions) };
@@ -159,7 +167,7 @@ function mergeConcurrencies(existing: NatsConcurrencyMeta[], pattern: string, li
  * Decorator to enforce concurrency limits on a message handler.
  */
 export function MaxAckPendingPerSubject(
-  patternOrContract: string | INatsProvider<unknown>,
+  patternOrContract: string | INatsProvider<unknown> | IMessageContract<unknown>,
   limit: number,
   ttlMs?: number
 ): any {
@@ -182,8 +190,10 @@ export function MaxAckPendingPerSubject(
     let pattern: string;
     if (typeof patternOrContract === "string") {
       pattern = patternOrContract;
+    } else if ("getDefinition" in patternOrContract) {
+      pattern = (patternOrContract as IMessageContract<unknown>).getDefinition().topic;
     } else {
-      pattern = patternOrContract.getNatsConfig().subject;
+      pattern = (patternOrContract as INatsProvider<unknown>).getNatsConfig().subject;
     }
 
     const key = generateMetaKey(constructor.name, propertyName);

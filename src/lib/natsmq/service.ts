@@ -13,7 +13,9 @@ import {
 } from "./types";
 import { getNatsMQMeta } from "./meta";
 import { NatsMQEngine } from "./engine";
+import { HyperService } from "../server/decorators";
 
+@HyperService()
 export class NatsMQService {
   private static instance: NatsMQService;
   public mq?: NatsMQ;

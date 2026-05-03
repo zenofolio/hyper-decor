@@ -1,8 +1,8 @@
 import { z } from "zod";
-import { NatsSubscriptionOptions, INatsProvider } from "../types";
+import { NatsSubscriptionOptions, INatsProvider, IMessageContract } from "../types";
 import { RetentionPolicy, StorageType } from "nats";
 
-export class NatsMessageContract<T, R = void> implements INatsProvider<T> {
+export class NatsMessageContract<T, R = void> implements INatsProvider<T>, IMessageContract<T> {
   constructor(
     public readonly subject: string,
     public readonly schema: z.ZodType<T>,
@@ -19,6 +19,17 @@ export class NatsMessageContract<T, R = void> implements INatsProvider<T> {
       subject: this.subject.replace(/:[a-zA-Z0-9]+/g, "*"),
       schema: this.schema,
       options: this.options
+    };
+  }
+
+  /**
+   * Universal interface implementation for MessageBus and other generic transports.
+   */
+  getDefinition() {
+    return {
+      topic: this.subject.replace(/:[a-zA-Z0-9]+/g, "*"),
+      schema: this.schema,
+      config: this.options
     };
   }
 

@@ -1,5 +1,6 @@
 import { inject, injectable } from "tsyringe";
 import { ILogger, InternalLogger, LOGGER_TOKEN } from "./logger";
+import z from "zod";
 
 export enum Transport {
   INTERNAL = "internal",
@@ -18,7 +19,17 @@ export interface IMessageOptions {
 export interface IMessageEmitOptions {
   transport?: Transport | string;
   correlationId?: string;
+  idempotencyKey?: string;
+  headers?: Record<string, string>;
   [key: string]: any;
+}
+
+export interface IMessageContract<T> {
+  getDefinition(): {
+    topic: string;
+    schema: z.ZodType<T>;
+    config?: Record<string, any>;
+  };
 }
 
 /**
