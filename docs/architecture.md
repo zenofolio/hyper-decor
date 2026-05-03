@@ -22,6 +22,23 @@ Each component can implement the `OnInit` interface. `hyper-decor` ensures that:
 - `onInit` is called exactly once.
 - Sub-components (Modules/Controllers) are prepared only after their parent is ready.
 
+### Standalone Bootstraps
+For logic that needs to run exactly once at startup but doesn't belong to a Module or Controller (e.g., database connectivity check, cache warming, or telemetry setup), you can use the `bootstraps` array in `@HyperApp`:
+
+```typescript
+@singleton()
+class CacheWarmer implements OnInit {
+  async onInit() {
+    console.log("🔥 Warming up cache...");
+  }
+}
+
+@HyperApp({
+  bootstraps: [CacheWarmer, async () => console.log("🚀 Pure function bootstrap")]
+})
+class MyApp {}
+```
+
 ## 2. Automatic OpenAPI Generation
 
 Because `hyper-decor` uses decorators and Zod schemas, it can inspect your controllers at runtime and generate a complete OpenAPI 3.0 specification.

@@ -57,18 +57,22 @@ class OrderModule {}
 
 // --- 4. Bootstrap the Application ---
 @HyperApp({
-  modules: [OrderModule]
+  modules: [OrderModule],
+  bootstraps: [
+    async () => {
+      // Configure NATS using the unified NatsMQService singleton
+      const natsSvc = NatsMQService.getInstance();
+      natsSvc.configure({ servers: "nats://localhost:4222" });
+      await natsSvc.onInit();
+      console.log("🚀 NATS Messaging Ready!");
+    }
+  ]
 })
-class MainApp {
-  async onPrepare() {
-    // Configure NATS after the app tree is ready
-    const natsSvc = NatsMQService.getInstance();
-    natsSvc.configure({ servers: "nats://localhost:4222" });
-    await natsSvc.onInit();
-    
-    console.log("🚀 Application and NATS are ready!");
-  }
-}
+class MainApp { }
+
+// Start the server
+const app = await createApplication(MainApp);
+await app.listen(3000);
 ```
 
 ## 3. Distributed Setup (Redis & NATS)

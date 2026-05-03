@@ -12,7 +12,7 @@ class GlobalState {
 // 2. A bootstrap class
 @singleton()
 class MyBootstrapClass implements OnInit {
-  constructor(private state: GlobalState) {}
+  constructor(private state: GlobalState) { }
 
   async onInit() {
     this.state.initialized = true;
@@ -25,19 +25,18 @@ const pureFunc = vi.fn(async () => {
 });
 
 @HyperApp({
-  port: 0, // Random port
   modules: [],
   bootstraps: [
     MyBootstrapClass,
     pureFunc
   ]
 })
-class MyApp {}
+class MyApp { }
 
 describe("Server Bootstrap Lifecycle", () => {
   it("should execute all bootstrap tasks (classes and functions) on startup", async () => {
     const app = await createApplication(MyApp);
-    
+
     // Verify class-based bootstrap executed and DI worked
     const state = container.resolve(GlobalState);
     expect(state.initialized).toBe(true);

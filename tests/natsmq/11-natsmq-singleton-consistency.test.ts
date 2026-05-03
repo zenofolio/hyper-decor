@@ -12,15 +12,20 @@ const MyMsg = MyQueue.define("ping", z.any());
 @singleton()
 @NatsMQWorker(MyQueue)
 class SingletonWorker {
+
+  static received = (data: any) => { }
+
   constructor(
-    @inject(NatsMQService) public mqService: NatsMQService
-  ) {}
+    public mqService: NatsMQService
+  ) {
+
+  }
 
   @OnNatsMessage(MyMsg)
-  async handlePing() {
-    // Should be able to access engine here
+  async handlePing(data: any) {
     const engine = this.mqService.getEngine();
     expect(engine).toBeDefined();
+    SingletonWorker.received(data)
   }
 }
 
@@ -28,7 +33,7 @@ class SingletonWorker {
   servers: "nats://localhost:4222",
   workers: [SingletonWorker]
 })
-class SingletonApp {}
+class SingletonApp { }
 
 describe("NatsMQ: Singleton Consistency", () => {
   it("should provide the same initialized engine via DI and static access", async () => {
@@ -44,6 +49,18 @@ describe("NatsMQ: Singleton Consistency", () => {
     const worker = container.resolve(SingletonWorker);
     expect(worker.mqService.getEngine()).toBe(mq.engine);
     expect(worker.mqService.mq).toBe(mq);
+
+
+
+    let primise = new Promise((r) => {
+      SingletonWorker.received = (data: any) => {
+        expect(data).toEqual({ data: 1 });
+        r(true);
+      }
+    })
+
+    await staticEngine.publish(MyMsg, { data: 1 })
+    await primise;
 
     // 4. Cleanup
     await mq.engine.deleteStream(STREAM_NAME);

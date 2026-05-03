@@ -67,9 +67,17 @@ await engine.createPullConsumer(
 ```
 
 ### Accessing the Engine
-You can access the `NatsMQEngine` from anywhere using the service:
+You can access the `NatsMQEngine` from anywhere using the service. The engine is a **Singleton** consistent across DI and static access:
+
 ```typescript
-const engine = NatsMQService.getInstance().getEngine();
+// Via Static Access
+const engine = NatsMQService.getEngine();
+
+// Via DI (in a Service/Worker)
+constructor(@inject(NatsMQService) private mqService: NatsMQService) {
+  const engine = this.mqService.getEngine();
+}
+
 await engine.publish(OrderCreated, { id: "ORD-123" });
 ```
 
@@ -140,8 +148,25 @@ NatsMQ is optimized for high-volume workloads (>30,000 msg/sec).
 - **Pull Consumption**: Unlike Push consumers, NatsMQ uses Pull, preventing worker saturation by only requesting messages when it has local capacity.
 - **Inflight Control**: NatsMQ pulls messages in batches (customizable via `max_messages`) and processes them in parallel while respecting your concurrency limits.
 - **NAK Storm Protection**: If a worker hits a global limit, it won't "NAK storm" NATS; instead, it uses a smart local retry loop with jitter to wait for the next available slot within its local inflight buffer.
+- **🛡️ Processing Heartbeat**: For long-running tasks, NatsMQ automatically sends `msg.working()` heartbeats every second. This prevents NATS from thinking the worker is dead and redelivering the message to another node while it's still being processed.
 
-## 7. Publishing & Requests
+## 7. Dead Letter System (DLS) & Reliability
+
+NatsMQ is designed for production-grade reliability. When a message fails repeatedly and reaches its `max_deliver` limit (configured in the contract), NatsMQ protects your queue from "poison messages".
+
+1.  **Automatic DLS**: If a `dlsSubject` is configured in the engine, the failed message is moved there with full metadata (error, attempts, original subject).
+2.  **Termination**: After moving to DLS, the original message is explicitly terminated (`msg.term()`) to clear the queue.
+
+```typescript
+// Configure DLS in your bootstrap or service initialization
+const natsSvc = NatsMQService.getInstance();
+natsSvc.configure({
+  servers: "...",
+  dlsSubject: "system.dls" // All failed messages go here
+});
+```
+
+## 8. Publishing & Requests
 
 ```typescript
 const mq = NatsMQService.getInstance().mq;
