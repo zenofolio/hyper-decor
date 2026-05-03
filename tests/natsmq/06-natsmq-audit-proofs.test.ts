@@ -12,7 +12,8 @@ describe("NatsMQ Audit Proofs (Production Failure Simulations)", () => {
   let engineB: NatsMQEngine;
   let nc: any;
   let jsm: any;
-  const STREAM_NAME = "AUDIT_PROOFS";
+  const SUFFIX = Math.random().toString(36).substring(7);
+  const STREAM_NAME = `AUDIT_PROOFS_${SUFFIX}`.toUpperCase();
 
   beforeAll(async () => {
     // We connect a raw client to inspect the stream directly
@@ -27,14 +28,14 @@ describe("NatsMQ Audit Proofs (Production Failure Simulations)", () => {
       servers: "nats://localhost:4222",
       concurrencyStore: new LocalConcurrencyStore(),
       metrics: new DefaultNatsMQMetrics(),
-      dlsSubject: "audit.dls" // Defined, but will prove it's never used
+      dlsSubject: `audit.dls.${SUFFIX}`
     });
 
     engineB = new NatsMQEngine({
       servers: "nats://localhost:4222",
       concurrencyStore: new LocalConcurrencyStore(),
       metrics: new DefaultNatsMQMetrics(),
-      dlsSubject: "audit.dls"
+      dlsSubject: `audit.dls.${SUFFIX}`
     });
 
     await engineA.start();
@@ -51,7 +52,7 @@ describe("NatsMQ Audit Proofs (Production Failure Simulations)", () => {
   });
 
   it("Proof 1: 'La Tarea Robada' - Duplicate processing due to ack_wait vs lock_wait", async () => {
-    const subject = "audit.robada";
+    const subject = `audit.robada.${SUFFIX}`;
     let executionsA = 0;
     let executionsB = 0;
 
@@ -102,24 +103,24 @@ describe("NatsMQ Audit Proofs (Production Failure Simulations)", () => {
     // T=3.5: Node B acquires lock, processes the same message, acks message.
     await delay(5000);
 
-    // PROOF: The same message was processed twice by the system!
-    // This violates the entire purpose of concurrency locks.
+    // PROOF: Thanks to msg.working() heartbeat, Node A keeps the message alive
+    // even if it takes longer than ack_wait. Node B never receives it.
     console.log(`[Proof 1] Executions Node A: ${executionsA}, Executions Node B: ${executionsB}`);
     
-    // We expect both nodes to have executed the handler for a single published message.
-    expect(executionsA + executionsB).toBeGreaterThan(1);
+    expect(executionsA + executionsB).toBe(1);
     expect(executionsA).toBe(1);
-    expect(executionsB).toBe(1);
+    expect(executionsB).toBe(0);
   }, 10000);
 
   it("Proof 2: 'El Agujero Negro' - DLS is completely ignored", async () => {
-    const subject = "audit.blackhole";
+    const subject = `audit.blackhole.${SUFFIX}`;
     let executions = 0;
     
     // We will subscribe to the DLS subject manually using the raw client
     // to prove that no message ever arrives there.
     let dlsReceived = 0;
-    const dlsSub = nc.subscribe("audit.dls");
+    const dlsSubject = `audit.dls.${SUFFIX}`;
+    const dlsSub = nc.subscribe(dlsSubject);
     (async () => {
       for await (const m of dlsSub) {
         dlsReceived++;
@@ -159,12 +160,12 @@ describe("NatsMQ Audit Proofs (Production Failure Simulations)", () => {
     const info = await jsm.streams.info(STREAM_NAME);
     const msgCount = info.state.messages;
 
+    // PROOF: The message was executed and failed. After reaching max_deliver,
+    // it was moved to the DLS subject and terminated from the main stream.
     console.log(`[Proof 2] Executions: ${executions}, Messages in DLS: ${dlsReceived}, Messages left in Stream: ${msgCount}`);
 
-    // PROOF: The message was executed twice, failed both times, 
-    // was deleted from NATS, and NEVER arrived at the DLS. Data loss confirmed.
-    expect(executions).toBeGreaterThanOrEqual(2);
-    expect(dlsReceived).toBe(0); // DLS is unused!
+    expect(executions).toBeGreaterThanOrEqual(2); 
+    expect(dlsReceived).toBeGreaterThanOrEqual(1); // Real DLS implementation confirmed!
     
   }, 10000);
 });

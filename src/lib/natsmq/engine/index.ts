@@ -299,11 +299,6 @@ export class NatsMQEngine {
       max_messages: pullBatch,
     });
 
-    // Tracking for local worker concurrency (inflight control)
-    let localInflight = 0;
-    // We allow local buffering up to the NATS server limit (max_ack_pending)
-    const maxLocalInflight = maxAckPending;
-
     (async () => {
       for await (const msg of messages) {
         if (!this.running) {
@@ -316,27 +311,14 @@ export class NatsMQEngine {
         }
 
         const process = async () => {
-          localInflight++;
           try {
             await this.processMessage(msg, meta, concurrencies, handler);
           } catch (err) {
             console.error(`[Engine] ❌ Critical processing error for ${msg.subject}:`, err);
-          } finally {
-            localInflight--;
           }
         };
 
-        if (concurrencies.length > 0) {
-          // In concurrency mode, we allow some local buffering but we don't block the pull loop 
-          // too much unless we are really saturated. 
-          // The actual waiting happens inside processMessage (acquire retry)
-          while (localInflight >= maxLocalInflight) {
-            await delay(100);
-          }
-          process();
-        } else {
-          process();
-        }
+        process();
       }
     })().catch(err => {
       if (this.running) console.error(`[Engine] ❌ Consumer error:`, err);
@@ -349,8 +331,54 @@ export class NatsMQEngine {
     concurrencies: NatsConcurrencyMeta[],
     handler: (data: unknown, msg: JsMsg) => Promise<unknown>
   ): Promise<boolean> {
+    const start = Date.now();
+
+    const handleFailure = async (err: any) => {
+      const redeliveries = msg.info.redeliveryCount;
+      const maxDeliver = meta.options.max_deliver || 100;
+
+      if (this.options.metrics) {
+        await this.options.metrics.recordProcessingError(msg.subject, "handler_error");
+      }
+
+      // 🛡️ DLS Implementation: If we reached max_deliver, move to DLS and TERMINATE
+      if (redeliveries >= maxDeliver) {
+        console.error(`[Engine] 💀 Message exceeded max_deliver (${maxDeliver}). terminating.`);
+        
+        if (this.dlsSubject) {
+          try {
+            const payload = {
+              subject: msg.subject,
+              data: this.jc.decode(msg.data),
+              error: err instanceof Error ? err.message : String(err),
+              attempts: redeliveries,
+              timestamp: new Date().toISOString()
+            };
+            // Use a short timeout for DLS publish to avoid hanging
+            await this.js!.publish(this.dlsSubject, this.jc.encode(payload), { timeout: 2000 });
+          } catch (dlsErr) {
+            console.error(`[Engine] ❌ Failed to publish to DLS:`, dlsErr);
+          }
+        }
+        
+        await msg.term(); // Always terminate if we reached the limit
+        return;
+      }
+
+      // Normal NAK with exponential backoff or default delay
+      const backoffIndex = Math.min(redeliveries - 1, this.retryBackoff.length - 1);
+      const nakDelay = this.retryBackoff[backoffIndex] || 1000;
+      
+      console.warn(`[Engine] ⚠️ Processing failed for ${msg.subject}. NAKing with ${nakDelay}ms delay. (Attempt ${redeliveries})`);
+      msg.nak(nakDelay);
+    };
+
     const routine = async () => {
-      const start = Date.now();
+      // 💓 Start a background heartbeat to keep the message alive during long processing
+      const heartbeat = setInterval(() => {
+        try { msg.working(); } catch (e) {}
+      }, 1000); // Every 1s to be safer than most ack_waits
+
       try {
         const decoded = this.jc.decode(msg.data);
         const parsed = meta.schema.parse(decoded);
@@ -362,10 +390,10 @@ export class NatsMQEngine {
           await this.options.metrics.recordProcessingSuccess(msg.subject, duration);
         }
       } catch (err) {
-        if (this.options.metrics) {
-          await this.options.metrics.recordProcessingError(msg.subject, "handler_error");
-        }
+        await handleFailure(err);
         throw err;
+      } finally {
+        clearInterval(heartbeat);
       }
     };
 
@@ -373,28 +401,31 @@ export class NatsMQEngine {
       let locks: ILock[] = [];
       let success = false;
       const startAcquire = Date.now();
-      const maxAcquireTime = 60000; // 60s timeout for local retry
-
-      // Retry loop for acquiring locks instead of immediate NAK
+      const maxAcquireTime = 30000; // 30s max wait before NAKing to another node
+      let lastHeartbeat = Date.now();
       while (!success && (Date.now() - startAcquire < maxAcquireTime)) {
         locks = [];
         let allLocked = true;
 
         try {
+          // Tell NATS we are still working periodically (every 1s)
+          // This must be shorter than the consumer's ack_wait
+          if (Date.now() - lastHeartbeat > 1000) {
+            msg.working();
+            lastHeartbeat = Date.now();
+          }
+
           for (const c of concurrencies) {
             const ttl = c.ttlMs || 60000;
             let lockKey = c.pattern;
 
-            // Resolve dynamic lock keys (e.g. "jobs.:id" -> "jobs.123")
             if (lockKey.includes(':')) {
               const baseSubject = meta.originalSubject || meta.subject;
               const patternParts = baseSubject.split('.');
               const subjectParts = msg.subject.split('.');
-
               const parts = lockKey.split('.');
               for (let i = 0; i < parts.length; i++) {
                 if (parts[i].startsWith(':')) {
-                  // Find the index in the original subject that matches this param
                   const paramIndex = patternParts.findIndex(p => p === parts[i]);
                   if (paramIndex !== -1 && subjectParts[paramIndex]) {
                     lockKey = lockKey.replace(parts[i], subjectParts[paramIndex]);
@@ -414,18 +445,21 @@ export class NatsMQEngine {
           if (allLocked) {
             success = true;
           } else {
-            // Release what we got and wait
+            // Release what we got and wait a bit with jitter
             for (const l of locks) await this.store.release(l);
-            await delay(Math.random() * 100 + 50); // Jittered wait
+            await delay(Math.random() * 200 + 100); 
           }
         } catch (err) {
           for (const l of locks) await this.store.release(l);
-          throw err;
+          await handleFailure(err);
+          return false;
         }
       }
 
       if (!success) {
-        msg.nak();
+        // We couldn't get the lock in 30s. NAK with delay so NATS can try elsewhere or later.
+        console.warn(`[Engine] 🔒 Could not acquire locks for ${msg.subject} in ${maxAcquireTime}ms. NAKing.`);
+        msg.nak(2000); 
         return false;
       }
 
@@ -441,8 +475,7 @@ export class NatsMQEngine {
       await routine();
       return true;
     } catch (err) {
-      console.error(`[Engine] ❌ Error in handler for ${msg.subject}:`, err);
-      msg.nak();
+      // Failure already handled in routine() catch block
       return false;
     }
   }

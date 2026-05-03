@@ -17,17 +17,13 @@ import { HyperService } from "../server/decorators";
 
 @HyperService()
 export class NatsMQService {
-  private static instance: NatsMQService;
   public mq?: NatsMQ;
   private options?: NatsMQOptions;
 
-  private constructor() { }
+  public constructor() { }
 
   public static getInstance(): NatsMQService {
-    if (!NatsMQService.instance) {
-      NatsMQService.instance = new NatsMQService();
-    }
-    return NatsMQService.instance;
+    return container.resolve(NatsMQService);
   }
 
   public static getEngine(): NatsMQEngine {

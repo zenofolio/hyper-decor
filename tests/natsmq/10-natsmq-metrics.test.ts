@@ -80,7 +80,10 @@ describe("NatsMQ: Unified Metrics API (count)", () => {
     });
     const MyMsg = MyQueue.define("job", z.any());
 
-    @NatsMQApp({ servers: "nats://localhost:4222" })
+    @NatsMQApp({ 
+      servers: "nats://localhost:4222",
+      metrics: metrics 
+    })
     class StatsApp { }
 
     const mq = await NatsMQ.bootstrap(StatsApp);

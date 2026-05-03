@@ -19,7 +19,7 @@ export class MessageBus {
   async emit<T = any>(topicOrContract: string | IMessageContract<T>, data: T, options?: IMessageEmitOptions): Promise<void> {
     let topic: string;
     let payload = data;
-    let mergedOptions = { ...options };
+    let mergedOptions = options;
 
     if (typeof topicOrContract === "string") {
       topic = topicOrContract;
@@ -31,17 +31,17 @@ export class MessageBus {
 
     const envelope: IMessageEnvelope = {
       i: randomUUID(),
-      c: mergedOptions.correlationId,
+      c: mergedOptions?.correlationId,
       t: Date.now(),
       m: payload
     };
 
-    const targets = mergedOptions.transport
+    const targets = mergedOptions?.transport
       ? this.transports.filter((t) => t.name === mergedOptions.transport)
       : this.transports;
 
     if (this.interceptor?.onEmit) {
-      await this.interceptor.onEmit(topic, envelope, mergedOptions);
+      await this.interceptor.onEmit(topic, envelope, mergedOptions || {});
     }
 
     await Promise.all(targets.map((t) => t.emit(topic, envelope, mergedOptions)));
