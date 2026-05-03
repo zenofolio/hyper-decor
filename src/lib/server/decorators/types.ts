@@ -89,6 +89,7 @@ export interface HyperAppMetadata {
     redisOptions?: any;
   };
   hooks?: IHyperHooks | Constructor<IHyperHooks>;
+  bootstraps?: (Constructor<OnInit> | (() => Promise<void> | void))[];
 }
 
 export interface HyperAppDecorator {

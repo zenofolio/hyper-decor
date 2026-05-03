@@ -6,7 +6,7 @@ import { HyperCommonMetadata } from "../__internals/types";
 import { HyperMeta } from "../__internals/stores";
 import { prepareApplication } from "../__internals/helpers/prepare.helper";
 import { transformRegistry } from "../__internals/transform/transform.registry";
-import { LogSpaces } from "../lib/server/decorators/types";
+import { LogSpaces, OnInit } from "../lib/server/decorators/types";
 import { LOGGER_TOKEN, InternalLogger } from "./logger";
 
 // Register default logger
@@ -72,6 +72,20 @@ export async function createApplication<T extends IHyperApplication>(
   if ("onPrepare" in appInstance && typeof appInstance.onPrepare === "function") {
     const onPrepare = (appInstance as any).onPrepare.bind(appInstance);
     await onPrepare();
+  }
+
+  // 🚀 Run Bootstraps
+  if (metadata.type === "app" && metadata.bootstraps && metadata.bootstraps.length > 0) {
+    for (const bootTask of metadata.bootstraps) {
+      if (typeof bootTask === "function" && bootTask.prototype && bootTask.prototype.onInit) {
+        // It's a class with onInit
+        const instance = container.resolve(bootTask as any) as OnInit;
+        await instance.onInit();
+      } else if (typeof bootTask === "function") {
+        // It's a pure function
+        await (bootTask as any)();
+      }
+    }
   }
 
   return appProxy as unknown as IHyperApp<T>;
