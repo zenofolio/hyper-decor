@@ -39,8 +39,7 @@ export async function createApplication<T extends IHyperApplication>(
   };
 
 
-  const appServer = await prepareApplication(metadata, application, logWrapper);
-  const appInstance = container.resolve(application);
+  const { server: appServer, instance: appInstance } = await prepareApplication(metadata, application, logWrapper);
 
   const appProxy = new Proxy(appInstance as any, {
     get(target, prop) {

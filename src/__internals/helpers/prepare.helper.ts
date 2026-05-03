@@ -89,9 +89,15 @@ export class BootstrapContext {
   readonly serverMetadataCache = new WeakMap<Function, HyperPrefixRoot>();
   readonly metadataCache = new WeakMap<Function, TargetData>();
   readonly resolvableCache = new WeakSet<Function>();
-  readonly handlersCache = new WeakMap<object, Set<string>>();
   readonly importTokenCache = new WeakSet<object | Function>();
 }
+
+/**
+ * Global handler registration cache.
+ * Prevents the same @OnMessage handler from being registered twice,
+ * even across different BootstrapContext instances.
+ */
+const globalHandlersCache = new WeakMap<object, Set<string>>();
 
 /**
  * Global single-flight initialization cache.
@@ -223,8 +229,8 @@ async function initOnce(instance: any, token?: object | Function): Promise<void>
     .then(async () => {
       if (isInitialized(instance)) return;
 
-      setInitialized(instance);
       await instance.onInit();
+      setInitialized(instance);
     })
     .catch((error) => {
       globalInitPromises.delete(key);
@@ -251,11 +257,11 @@ export async function registerInstanceHandlers(
 
   if (methodKeys.length === 0) return;
 
-  let registered = ctx.handlersCache.get(instance);
+  let registered = globalHandlersCache.get(instance);
 
   if (!registered) {
     registered = new Set<string>();
-    ctx.handlersCache.set(instance, registered);
+    globalHandlersCache.set(instance, registered);
   }
 
   const bus = container.resolve(MessageBus);
@@ -278,12 +284,7 @@ export async function registerInstanceHandlers(
 
     const { topic, options = {} } = methodMeta.onMessage;
 
-    const finalOptions: Record<string, any> = {
-      ...options,
-      ...methodMeta,
-    };
-
-    delete finalOptions.onMessage;
+    const finalOptions = { ...options };
 
     await bus.listen(
       topic,
@@ -557,7 +558,13 @@ async function prepareImportsInternal(
       token = item as any;
     }
 
-    const instance = container.resolve(token) as any;
+    let instance: any;
+    try {
+      instance = container.resolve(token);
+    } catch (err) {
+      const name = typeof token === "function" ? token.name : String(token);
+      throw new Error(`Failed to resolve import "${name}": ${(err as Error).message}`);
+    }
 
     if (!instance) continue;
 
@@ -725,7 +732,7 @@ export async function prepareApplication(
   options: HyperAppMetadata,
   Target: Constructor,
   log: (space: keyof LogSpaces, message: string) => void
-): Promise<Server> {
+): Promise<{ server: Server; instance: object }> {
   const ctx = new BootstrapContext();
 
   const appServer = new Server(options.uwsOptions || options.options);
@@ -755,7 +762,9 @@ export async function prepareApplication(
   const bus = container.resolve(MessageBus);
 
   // Always register config to avoid injection errors
-  container.register("IdempotencyConfig", { useValue: idempotency || { enabled: false } });
+  if (!container.isRegistered("IdempotencyConfig")) {
+    container.register("IdempotencyConfig", { useValue: idempotency || { enabled: false } });
+  }
   if (!container.isRegistered("RedisClient")) {
     container.register("RedisClient", { useValue: null });
   }
@@ -802,8 +811,9 @@ export async function prepareApplication(
       : [InternalTransport];
 
   for (const transport of transports as IMessageTransport[]) {
-    bus.registerTransport(typeof transport === "function" ? container.resolve(transport) : transport);
-    await initOnce(transport, transport);
+    const resolved = (typeof transport === "function" ? container.resolve(transport) : transport) as IMessageTransport;
+    bus.registerTransport(resolved);
+    await initOnce(resolved, transport);
   }
 
   const hooks = options.hooks
@@ -862,5 +872,5 @@ export async function prepareApplication(
 
   await initOnce(appInstance, Target);
 
-  return appServer;
+  return { server: appServer, instance: appInstance };
 }
