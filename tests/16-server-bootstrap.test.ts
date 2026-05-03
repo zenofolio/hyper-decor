@@ -1,7 +1,7 @@
 import "reflect-metadata";
 import { describe, it, expect, vi } from "vitest";
 import { container, singleton } from "tsyringe";
-import { HyperApp, createApplication, OnInit, HyperService } from "../src/index";
+import { HyperApp, createApplication, OnInit, HyperService, MessageBus, OnMessage } from "../src/index";
 
 // 1. A singleton service to be injected
 @HyperService()
@@ -12,10 +12,17 @@ class GlobalState {
 // 2. A bootstrap class
 @singleton()
 class MyBootstrapClass implements OnInit {
+  static messageReceived = false;
+
   constructor(private state: GlobalState) { }
 
   async onInit() {
     this.state.initialized = true;
+  }
+
+  @OnMessage("test.event")
+  async onEvent(data: any) {
+    MyBootstrapClass.messageReceived = true;
   }
 }
 
@@ -43,6 +50,10 @@ describe("Server Bootstrap Lifecycle", () => {
 
     // Verify function-based bootstrap executed
     expect(pureFunc).toHaveBeenCalled();
+
+    // Verify @OnMessage listener worked in bootstrap class
+    await MessageBus.emit("test.event", { ok: true });
+    expect(MyBootstrapClass.messageReceived).toBe(true);
 
     await app.close();
   });

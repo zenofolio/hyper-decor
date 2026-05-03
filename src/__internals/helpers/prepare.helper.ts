@@ -85,7 +85,7 @@ interface TargetData {
  * They are intentionally scoped to prepareApplication(), so they can be
  * garbage-collected after the bootstrap finishes.
  */
-class BootstrapContext {
+export class BootstrapContext {
   readonly serverMetadataCache = new WeakMap<Function, HyperPrefixRoot>();
   readonly metadataCache = new WeakMap<Function, TargetData>();
   readonly resolvableCache = new WeakSet<Function>();
