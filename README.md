@@ -97,6 +97,15 @@ await engine.publish(UserTasks.fill({ id: "123" }), data);
 
 ---
 
+## 🛠️ Recent Improvements (v2.9.1)
+
+- **Resilient Bootstrap**: Services with failed `onInit` are no longer permanently marked as initialized, allowing for graceful recovery and retries.
+- **Race Condition Protection**: Implemented a global single-flight initialization cache to prevent duplicate service setup during concurrent bootstrap cycles.
+- **Handler Integrity**: Fixed a bug where `@OnMessage` handlers could be registered multiple times in nested module architectures.
+- **DI Optimization**: Reduced container overhead by eliminating redundant resolutions during application startup.
+
+---
+
 ## Installation
 
 ```bash
