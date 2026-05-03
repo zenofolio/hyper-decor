@@ -86,6 +86,9 @@ describe("NatsMQ Audit Proofs (Production Failure Simulations)", () => {
       await delay(3500); 
     });
 
+    // Give Node A a head start to be the primary consumer
+    await delay(500);
+
     // Start Consumer B (Another Node)
     await engineB.createPullConsumer(meta as any, concurrencies, async (data, msg) => {
       executionsB++;
