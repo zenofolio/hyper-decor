@@ -4,6 +4,9 @@ export type CollectorType = "class" | "method" | "param";
 export type CollectorFn = (target: any, propertyKey?: string) => any;
 export type TreeProcessorFn = (tree: AppTree) => void;
 
+const OPENAPI_REGISTRY_INSTANCE = Symbol.for("hyper:openapi-registry");
+const globalRegistry = globalThis as any;
+
 class OpenAPIMetadataRegistry {
   private collectors: Record<CollectorType, Set<CollectorFn>> = {
     class: new Set(),
@@ -12,6 +15,13 @@ class OpenAPIMetadataRegistry {
   };
 
   private processors: Set<TreeProcessorFn> = new Set();
+
+  constructor() {
+    if (globalRegistry[OPENAPI_REGISTRY_INSTANCE]) {
+      return globalRegistry[OPENAPI_REGISTRY_INSTANCE];
+    }
+    globalRegistry[OPENAPI_REGISTRY_INSTANCE] = this;
+  }
 
   /**
    * Register a custom metadata collector.

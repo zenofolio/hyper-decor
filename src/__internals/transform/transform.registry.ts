@@ -18,8 +18,18 @@ export interface ITransformer<T = any, S = any> {
 
 export type TransformerInput = TransformHandler | ITransformer;
 
+const TRANSFORM_REGISTRY_INSTANCE = Symbol.for("hyper:transform-registry");
+const globalRegistry = globalThis as any;
+
 class TransformRegistry {
   private transformers: ITransformer[] = [];
+
+  constructor() {
+    if (globalRegistry[TRANSFORM_REGISTRY_INSTANCE]) {
+      return globalRegistry[TRANSFORM_REGISTRY_INSTANCE];
+    }
+    globalRegistry[TRANSFORM_REGISTRY_INSTANCE] = this;
+  }
 
   /**
    * Register a transformer (function or object with transform method).

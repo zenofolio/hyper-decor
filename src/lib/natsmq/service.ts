@@ -15,25 +15,23 @@ import { getNatsMQMeta } from "./meta";
 import { NatsMQEngine } from "./engine";
 import { HyperService } from "../server/decorators";
 
+const NATSMQ_SERVICE_INSTANCE = Symbol.for("hyper:natsmq-service");
+const globalRegistry = globalThis as any;
+
 @HyperService()
 export class NatsMQService {
   public mq?: NatsMQ;
   private options?: NatsMQOptions;
 
-  private static _instance?: NatsMQService;
-
   public constructor() {
-    if (NatsMQService._instance) {
-      return NatsMQService._instance;
+    if (globalRegistry[NATSMQ_SERVICE_INSTANCE]) {
+      return globalRegistry[NATSMQ_SERVICE_INSTANCE];
     }
-    NatsMQService._instance = this;
+    globalRegistry[NATSMQ_SERVICE_INSTANCE] = this;
   }
 
   public static getInstance(): NatsMQService {
-    if (!this._instance) {
-      this._instance = new NatsMQService();
-    }
-    return this._instance;
+    return globalRegistry[NATSMQ_SERVICE_INSTANCE] || new NatsMQService();
   }
 
   public static getEngine(): NatsMQEngine {
