@@ -1,6 +1,6 @@
 {
   "name": "@zenofolio/hyper-decor",
-  "version": "2.9.9",
+  "version": "2.10.0",
   "description": "Project core with utilities and features",
   "main": "dist/index.js",
   "author": "zenozaga <zenozaga@gmail.com> (https://github.com/zenozaga)",
