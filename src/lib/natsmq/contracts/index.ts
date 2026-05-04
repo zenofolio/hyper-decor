@@ -116,21 +116,36 @@ export class NatsMessageContract<T, R = void> implements INatsProvider<T>, IMess
   }
 }
 
-export class ContractFactory implements INatsProvider<any> {
+export class ContractFactory implements INatsProvider<any>, IMessageContract<any> {
   constructor(
     public readonly prefix: string = "",
     public readonly baseOptions: NatsSubscriptionOptions = {}
   ) { }
 
+  private getFullWildcardSubject() {
+    return this.prefix ? (this.prefix.endsWith('.') ? `${this.prefix}>` : `${this.prefix}.>`) : ">";
+  }
+
   /**
    * Implements INatsProvider to return a "catch-all" configuration for the entire queue.
    */
   getNatsConfig() {
-    const base = this.prefix ? (this.prefix.endsWith('.') ? `${this.prefix}>` : `${this.prefix}.>`) : ">";
     return {
-      subject: base.replace(/:[a-zA-Z0-9]+/g, "*"),
+      subject: this.getFullWildcardSubject(),
       schema: z.any(),
       options: this.baseOptions
+    };
+  }
+
+  /**
+   * Universal interface implementation for MessageBus.
+   * Allows using the entire queue as a subscription topic.
+   */
+  getDefinition() {
+    return {
+      topic: this.getFullWildcardSubject(),
+      schema: z.any(),
+      config: this.baseOptions
     };
   }
 

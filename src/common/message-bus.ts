@@ -26,6 +26,15 @@ export class MessageBus {
     this.transports.push(transport);
   }
 
+  /**
+   * Resets the bus state (transports and interceptors).
+   * Primarily used for testing.
+   */
+  reset() {
+    this.transports = [];
+    this.interceptor = undefined;
+  }
+
   async emit<T = any>(topicOrContract: string | IMessageContract<T>, data: T, options?: IMessageEmitOptions): Promise<void> {
     let topic: string;
     let payload = data;
@@ -111,10 +120,20 @@ export class MessageBus {
     );
   }
 
+  static async listen<T = any>(topic: string | IMessageContract<T>, handler: (data: T, envelope?: IMessageEnvelope) => Promise<void> | void, options?: IMessageOptions): Promise<void> {
+    const bus = container.resolve(MessageBus);
+    await bus.listen(topic, handler, options);
+  }
+
+  static registerTransport(transport: IMessageTransport) {
+    const bus = container.resolve(MessageBus);
+    bus.registerTransport(transport);
+  }
+
   /**
    * Static helper to emit messages without resolving the bus manually.
    */
-  static async emit(topic: string, data: any, options?: any): Promise<void> {
+  static async emit<T = any>(topic: string | IMessageContract<T>, data: T, options?: IMessageEmitOptions): Promise<void> {
     const bus = container.resolve(MessageBus);
     await bus.emit(topic, data, options);
   }

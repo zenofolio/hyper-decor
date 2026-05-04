@@ -50,6 +50,7 @@ describe("Agnostic Messaging Layer", () => {
   });
 
   afterEach(() => {
+    container.resolve(MessageBus).reset();
     container.reset();
   });
   it("should handle messages via @OnMessage", async () => {

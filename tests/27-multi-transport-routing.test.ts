@@ -35,6 +35,7 @@ describe("Multi-Transport Routing", () => {
     beforeEach(() => {
         container.clearInstances();
         bus = container.resolve(MessageBus);
+        bus.reset();
         nats = new MockTransport("nats");
         redis = new MockTransport("redis");
 
