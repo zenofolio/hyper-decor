@@ -1,11 +1,21 @@
-import { container, singleton, injectable } from "tsyringe";
+import { container, singleton } from "tsyringe";
 import { IMessageTransport, Transport, IMessageEnvelope, IMessageEmitOptions, IMessageInterceptor, IMessageOptions, IMessageContract } from "./transport";
 import { randomUUID } from "crypto";
+
+const MESSAGE_BUS_INSTANCE = Symbol.for("hyper:message-bus");
+const globalRegistry = globalThis as any;
 
 @singleton()
 export class MessageBus {
   private transports: IMessageTransport[] = [];
   private interceptor?: IMessageInterceptor;
+
+  constructor() {
+    if (globalRegistry[MESSAGE_BUS_INSTANCE]) {
+      return globalRegistry[MESSAGE_BUS_INSTANCE];
+    }
+    globalRegistry[MESSAGE_BUS_INSTANCE] = this;
+  }
 
   setInterceptor(interceptor: IMessageInterceptor) {
     this.interceptor = interceptor;
